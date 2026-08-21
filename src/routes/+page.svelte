@@ -1,97 +1,180 @@
 <script lang="ts">
   import {
     Album,
+    AlertCircle,
     BadgeCheck,
+    CheckCircle2,
+    ChevronDown,
+    ChevronUp,
+    Clock3,
     Disc3,
     FileMusic,
     FolderOpen,
     HardDrive,
     Heart,
+    Home,
     Library,
     ListMusic,
+    ListPlus,
     LoaderCircle,
     MicVocal,
+    Minus,
     Pause,
+    Pencil,
     Play,
+    Plus,
     Repeat,
     Repeat1,
     Search,
     Shuffle,
     SkipBack,
     SkipForward,
-    SlidersHorizontal,
     Sparkles,
     Star,
     Trash2,
-    Volume2
+    UploadCloud,
+    Volume2,
+    VolumeX,
+    X
   } from '@lucide/svelte';
   import { onMount } from 'svelte';
   import {
+    SUPPORTED_AUDIO_EXTENSIONS,
     canScanFolders,
+    canUseDirectoryInput,
     clearStoredTracks,
     createPlayableUrl,
-    getLastScanSummary,
-    restoreStoredTracks,
+    hasIndexedDb,
+    restoreLibrarySnapshot,
     revokePlayableUrls,
+    saveFavoriteIds,
+    saveRecentlyPlayed,
+    saveStoredPlaylists,
+    scanDroppedItems,
     scanFiles,
-    scanFolder
+    scanFolder,
+    updateStoredTrack
   } from '$lib/local/localLibrary';
-  import {
-    currentTrack,
-    filteredTracks,
-    genres,
-    libraryStats,
-    player
-  } from '$lib/stores/player';
-  import type { LibraryView, Track } from '$lib/types/music';
-  import { formatDuration } from '$lib/utils/format';
+  import { currentTrack, filteredTracks, genres, libraryStats, player } from '$lib/stores/player';
+  import type { LibraryView, PlayerState, Playlist, Track } from '$lib/types/music';
+  import { formatDuration, formatFileSize } from '$lib/utils/format';
+
+  type Toast = {
+    id: number;
+    message: string;
+    tone: 'success' | 'error' | 'info';
+  };
+
+  type AlbumGroup = {
+    id: string;
+    name: string;
+    artist: string;
+    tracks: Track[];
+    duration: number;
+    coverTrack: Track;
+  };
 
   const navItems: { id: LibraryView; label: string; icon: typeof Library }[] = [
-    { id: 'albums', label: 'Albums', icon: Album },
+    { id: 'home', label: 'Home', icon: Home },
     { id: 'songs', label: 'Songs', icon: ListMusic },
     { id: 'artists', label: 'Artists', icon: MicVocal },
-    { id: 'playlists', label: 'Playlists', icon: Library }
+    { id: 'albums', label: 'Albums', icon: Album },
+    { id: 'playlists', label: 'Playlists', icon: Library },
+    { id: 'favorites', label: 'Favorites', icon: Heart },
+    { id: 'recent', label: 'Recently Played', icon: Clock3 }
   ];
 
-  const audioAccept =
-    'audio/*,.aac,.aif,.aiff,.alac,.flac,.m4a,.mp3,.oga,.ogg,.opus,.wav,.webm';
+  const audioAccept = `audio/*,${SUPPORTED_AUDIO_EXTENSIONS.map((extension) => `.${extension}`).join(',')}`;
 
   let audioElement: HTMLAudioElement | undefined;
   let fileInput: HTMLInputElement | undefined;
   let audioTrackId = '';
-  let isScanning = false;
+  let fileInputMode: 'songs' | 'folder' = 'songs';
+  let isImportOpen = false;
+  let isImporting = false;
+  let isDragOver = false;
+  let importCurrent = 0;
+  let importTotal = 0;
+  let importFileName = '';
   let scanStatus = '';
   let scanError = '';
+  let toasts: Toast[] = [];
+  let toastId = 0;
+  let hydrated = false;
+  let persistTimer: ReturnType<typeof setTimeout> | undefined;
+  let selectedPlaylistId = '';
+  let newPlaylistName = '';
+  let renamePlaylistId = '';
+  let renamePlaylistName = '';
+  let browserCapabilities = {
+    indexedDb: false,
+    folderPicker: false,
+    directoryInput: false
+  };
 
   onMount(() => {
     const timer = window.setInterval(() => player.tick(), 1000);
-    let cancelled = false;
+    const unsubscribe = player.subscribe((state) => schedulePersistence(state));
 
-    const summary = getLastScanSummary();
-    if (summary) {
-      scanStatus = `${summary.count} local songs saved`;
-    }
+    browserCapabilities = {
+      indexedDb: hasIndexedDb(),
+      folderPicker: canScanFolders(),
+      directoryInput: canUseDirectoryInput()
+    };
 
-    restoreStoredTracks()
-      .then((tracks) => {
-        if (!cancelled && tracks.length > 0) {
-          player.loadTracks(tracks);
-          scanStatus = `${tracks.length} local songs loaded`;
+    restoreLibrarySnapshot()
+      .then((snapshot) => {
+        player.setLibrary(snapshot.tracks, snapshot.playlists, snapshot.recentlyPlayed);
+        player.setFavorites(snapshot.favoriteIds);
+
+        if (snapshot.tracks.length > 0) {
+          scanStatus = `${snapshot.tracks.length} local songs loaded`;
         }
       })
       .catch((error: unknown) => {
         scanError = getErrorMessage(error);
+      })
+      .finally(() => {
+        hydrated = true;
       });
 
+    window.addEventListener('keydown', handleKeyboard);
+
     return () => {
-      cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener('keydown', handleKeyboard);
+      unsubscribe();
       revokePlayableUrls();
+      if (persistTimer) window.clearTimeout(persistTimer);
     };
   });
 
+  function schedulePersistence(state: PlayerState) {
+    if (!hydrated) return;
+
+    if (persistTimer) {
+      window.clearTimeout(persistTimer);
+    }
+
+    persistTimer = window.setTimeout(() => {
+      const favoriteIds = state.tracks.filter((track) => track.favorite).map((track) => track.id);
+      void saveFavoriteIds(favoriteIds);
+      void saveStoredPlaylists(state.playlists);
+      void saveRecentlyPlayed(state.recentlyPlayed);
+    }, 250);
+  }
+
   function coverStyle(track: Track | undefined) {
     const cover = track?.cover ?? { from: '#d7ff73', via: '#4ab5a4', to: '#1e4b5f' };
+
+    if (cover.imageDataUrl) {
+      return `background-image:
+        linear-gradient(180deg, rgb(0 0 0 / 0.05), rgb(0 0 0 / 0.22)),
+        url("${cover.imageDataUrl}");
+        background-size: cover;
+        background-position: center;`;
+    }
+
     return `background:
       linear-gradient(135deg, ${cover.from}, ${cover.via} 46%, ${cover.to}),
       radial-gradient(circle at 30% 18%, rgb(255 255 255 / 0.4), transparent 28%);`;
@@ -115,74 +198,156 @@
     player.setVolume(Number((event.currentTarget as HTMLInputElement).value));
   }
 
-  async function scanLocalFolder() {
-    if (!canScanFolders()) {
-      openFilePicker(true);
-      return;
-    }
-
-    await runScan(() => scanFolder());
+  function openAddMusic() {
+    scanError = '';
+    isImportOpen = true;
   }
 
-  function openFilePicker(directory = false) {
-    if (!fileInput) {
-      return;
-    }
+  function closeAddMusic() {
+    if (isImporting) return;
+    isImportOpen = false;
+    isDragOver = false;
+  }
+
+  function openFilePicker(mode: 'songs' | 'folder') {
+    if (!fileInput) return;
 
     scanError = '';
+    fileInputMode = mode;
     fileInput.value = '';
 
-    if (directory) {
+    if (mode === 'folder') {
       fileInput.setAttribute('webkitdirectory', '');
+      fileInput.setAttribute('directory', '');
     } else {
       fileInput.removeAttribute('webkitdirectory');
+      fileInput.removeAttribute('directory');
     }
 
     fileInput.click();
+  }
+
+  async function scanLocalFolder() {
+    if (canScanFolders()) {
+      await runImport((onProgress) =>
+        scanFolder({
+          existingTracks: $player.tracks,
+          onProgress
+        })
+      );
+      return;
+    }
+
+    if (canUseDirectoryInput()) {
+      openFilePicker('folder');
+      pushToast('Using browser folder fallback.', 'info');
+      return;
+    }
+
+    scanError = 'Your browser does not support folder selection. Select individual files instead.';
+    pushToast(scanError, 'error');
   }
 
   async function handleFileInputChange(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
     const files = Array.from(input.files ?? []);
 
-    if (files.length === 0) {
-      return;
-    }
+    if (files.length === 0) return;
 
-    await runScan(() => scanFiles(files));
+    await runImport((onProgress) =>
+      scanFiles(files, {
+        existingTracks: $player.tracks,
+        onProgress
+      })
+    );
+
     input.value = '';
   }
 
-  async function runScan(scanner: () => Promise<{ tracks: Track[]; scannedFiles: number }>) {
-    isScanning = true;
+  async function handleDrop(event: DragEvent) {
+    event.preventDefault();
+    isDragOver = false;
+
+    if (!event.dataTransfer) return;
+
+    await runImport((onProgress) =>
+      scanDroppedItems(event.dataTransfer as DataTransfer, {
+        existingTracks: $player.tracks,
+        onProgress
+      })
+    );
+  }
+
+  async function runImport(
+    importer: (
+      onProgress: (progress: { current: number; total: number; fileName?: string }) => void
+    ) => Promise<{
+      tracks: Track[];
+      addedTracks: Track[];
+      addedCount: number;
+      duplicateCount: number;
+      unsupportedFiles: string[];
+      limitedMetadataCount: number;
+    }>
+  ) {
+    if (!hasIndexedDb()) {
+      scanError = 'IndexedDB is not available, so this browser cannot save a local music library.';
+      pushToast(scanError, 'error');
+      return;
+    }
+
+    isImporting = true;
     scanError = '';
-    scanStatus = 'Scanning local music';
-    stopAudio();
+    scanStatus = 'Importing...';
+    importCurrent = 0;
+    importTotal = 0;
+    importFileName = '';
 
     try {
-      const result = await scanner();
-      player.loadTracks(result.tracks);
-      scanStatus =
-        result.scannedFiles === 1
-          ? '1 local song loaded'
-          : `${result.scannedFiles} local songs loaded`;
+      const result = await importer((progress) => {
+        importCurrent = progress.current;
+        importTotal = progress.total;
+        importFileName = progress.fileName ?? '';
+      });
+
+      player.setLibrary(result.tracks, $player.playlists, $player.recentlyPlayed);
+
+      const parts = [`${result.addedCount} songs added`];
+
+      if (result.duplicateCount > 0) {
+        parts.push(`${result.duplicateCount} duplicates skipped`);
+      }
+
+      if (result.unsupportedFiles.length > 0) {
+        parts.push(`${result.unsupportedFiles.length} unsupported`);
+      }
+
+      if (result.limitedMetadataCount > 0) {
+        parts.push(`${result.limitedMetadataCount} with limited metadata`);
+      }
+
+      scanStatus = parts.join(', ');
+      pushToast(scanStatus, result.addedCount > 0 ? 'success' : 'info');
+      isImportOpen = result.addedCount === 0 && result.unsupportedFiles.length > 0;
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        scanStatus = 'Scan canceled';
+        scanStatus = 'Import canceled';
       } else {
         scanError = getErrorMessage(error);
+        pushToast(scanError, 'error');
       }
     } finally {
-      isScanning = false;
+      isImporting = false;
     }
   }
 
   async function clearLocalLibrary() {
     stopAudio();
     await clearStoredTracks();
-    player.resetToDemo();
-    scanStatus = 'Demo library loaded';
+    player.clearLibrary();
+    scanStatus = '';
     scanError = '';
+    pushToast('Local library cleared.', 'info');
   }
 
   async function toggleTrack(track: Track) {
@@ -195,7 +360,11 @@
   }
 
   async function playTrack(track: Track | undefined) {
-    if (!track) {
+    if (!track) return;
+
+    if (track.playbackSupported === false) {
+      scanError = 'Unsupported audio format in this browser.';
+      pushToast(scanError, 'error');
       return;
     }
 
@@ -206,12 +375,11 @@
 
     stopAudio();
     player.playTrack(track.id);
+    player.recordRecentlyPlayed(track.id);
   }
 
   async function togglePlayback() {
-    if (!$currentTrack) {
-      return;
-    }
+    if (!$currentTrack) return;
 
     if ($player.isPlaying) {
       pausePlayback();
@@ -227,9 +395,7 @@
   }
 
   async function playLocalTrack(track: Track) {
-    if (!audioElement) {
-      return;
-    }
+    if (!audioElement) return;
 
     try {
       player.selectTrack(track.id);
@@ -245,11 +411,14 @@
       }
 
       audioElement.volume = $player.volume / 100;
+      audioElement.muted = $player.muted;
       await audioElement.play();
       player.setPlaying(true);
+      player.recordRecentlyPlayed(track.id);
     } catch (error: unknown) {
       player.setPlaying(false);
       scanError = getErrorMessage(error);
+      pushToast(scanError, 'error');
     }
   }
 
@@ -274,12 +443,20 @@
   }
 
   function getAdjacentTrack(direction: 1 | -1) {
+    if ($player.queue.length === 0) return undefined;
+
+    if ($player.shuffle && direction === 1 && $player.queue.length > 1) {
+      const candidates = $player.queue.filter((trackId) => trackId !== $player.currentTrackId);
+      const nextId = candidates[Math.floor(Math.random() * candidates.length)];
+      return $player.tracks.find((track) => track.id === nextId);
+    }
+
     const currentIndex = $player.queue.indexOf($player.currentTrackId);
     const fallbackIndex = currentIndex === -1 ? 0 : currentIndex;
     const nextIndex = fallbackIndex + direction;
 
     if (nextIndex < 0) {
-      return $player.tracks[$player.queue.length - 1];
+      return $player.tracks.find((track) => track.id === $player.queue[$player.queue.length - 1]);
     }
 
     if (nextIndex >= $player.queue.length) {
@@ -309,20 +486,150 @@
     }
   }
 
-  function handleAudioLoadedMetadata() {
-    if (!audioElement || !audioTrackId || !Number.isFinite(audioElement.duration)) {
-      return;
-    }
+  async function handleAudioLoadedMetadata() {
+    if (!audioElement || !audioTrackId || !Number.isFinite(audioElement.duration)) return;
 
     player.setTrackDuration(audioTrackId, audioElement.duration);
+    const track = $player.tracks.find((item) => item.id === audioTrackId);
+
+    if (track) {
+      await updateStoredTrack({ ...track, duration: Math.round(audioElement.duration) });
+    }
   }
 
   function handleAudioTimeUpdate() {
-    if (!audioElement || audioTrackId !== $player.currentTrackId) {
+    if (!audioElement || audioTrackId !== $player.currentTrackId) return;
+    player.setPosition(audioElement.currentTime);
+  }
+
+  function handleKeyboard(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+
+    if (target?.closest('input, textarea, select, button')) {
       return;
     }
 
-    player.setPosition(audioElement.currentTime);
+    if (event.code === 'Space') {
+      event.preventDefault();
+      void togglePlayback();
+    }
+
+    if (event.code === 'ArrowRight' && audioElement && $currentTrack?.source === 'local') {
+      audioElement.currentTime = Math.min(audioElement.duration || 0, audioElement.currentTime + 5);
+    }
+
+    if (event.code === 'ArrowLeft' && audioElement && $currentTrack?.source === 'local') {
+      audioElement.currentTime = Math.max(0, audioElement.currentTime - 5);
+    }
+
+    if (event.code === 'ArrowUp') {
+      event.preventDefault();
+      player.setVolume($player.volume + 5);
+    }
+
+    if (event.code === 'ArrowDown') {
+      event.preventDefault();
+      player.setVolume($player.volume - 5);
+    }
+
+    if (event.key.toLowerCase() === 'm') {
+      player.toggleMuted();
+    }
+  }
+
+  function playTrackIds(trackIds: string[]) {
+    const firstTrack = trackIds
+      .map((trackId) => $player.tracks.find((track) => track.id === trackId))
+      .find(Boolean);
+
+    if (!firstTrack) return;
+
+    player.playQueue(trackIds, firstTrack.id);
+    void playTrack(firstTrack);
+  }
+
+  function playNext(track: Track) {
+    player.playNext(track.id);
+    pushToast(`${track.title} will play next.`, 'success');
+  }
+
+  function addToQueue(track: Track) {
+    player.addToQueue(track.id);
+    pushToast(`${track.title} added to queue.`, 'success');
+  }
+
+  function removeFromQueue(track: Track) {
+    player.removeFromQueue(track.id);
+    pushToast(`${track.title} removed from queue.`, 'info');
+  }
+
+  function toggleFavorite(track: Track) {
+    player.toggleFavorite(track.id);
+    pushToast(track.favorite ? 'Removed from favorites.' : 'Added to favorites.', 'success');
+  }
+
+  function createPlaylist() {
+    const name = newPlaylistName.trim();
+    if (!name) return;
+
+    player.createPlaylist(name);
+    newPlaylistName = '';
+    pushToast('Playlist created.', 'success');
+  }
+
+  function startRename(playlist: Playlist) {
+    renamePlaylistId = playlist.id;
+    renamePlaylistName = playlist.name;
+  }
+
+  function saveRename() {
+    if (!renamePlaylistId) return;
+    player.renamePlaylist(renamePlaylistId, renamePlaylistName);
+    renamePlaylistId = '';
+    renamePlaylistName = '';
+    pushToast('Playlist renamed.', 'success');
+  }
+
+  function addTrackToPlaylist(playlistId: string, track: Track) {
+    if (!playlistId) return;
+
+    player.addToPlaylist(playlistId, track.id);
+    pushToast(`${track.title} added to playlist.`, 'success');
+  }
+
+  function tracksForIds(trackIds: string[]) {
+    return trackIds
+      .map((trackId) => $player.tracks.find((track) => track.id === trackId))
+      .filter(Boolean) as Track[];
+  }
+
+  function totalDuration(tracks: Track[]) {
+    return tracks.reduce((total, track) => total + (track.duration || 0), 0);
+  }
+
+  function fuzzyMatch(value: string, query: string) {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return true;
+
+    const source = value.toLowerCase();
+    if (source.includes(normalized)) return true;
+
+    let queryIndex = 0;
+    for (const character of source) {
+      if (character === normalized[queryIndex]) queryIndex += 1;
+      if (queryIndex === normalized.length) return true;
+    }
+
+    return false;
+  }
+
+  function pushToast(message: string, tone: Toast['tone'] = 'info') {
+    const id = Date.now() + toastId;
+    toastId += 1;
+    toasts = [...toasts, { id, message, tone }].slice(-4);
+    window.setTimeout(() => {
+      toasts = toasts.filter((toast) => toast.id !== id);
+    }, 4200);
   }
 
   function getErrorMessage(error: unknown) {
@@ -331,12 +638,59 @@
 
   $: progressTrack = $currentTrack?.duration && $currentTrack.duration > 0 ? $currentTrack.duration : 1;
   $: progressPercent = Math.max(0, Math.min(100, ($player.position / progressTrack) * 100));
-  $: queueTracks = $player.queue
+  $: queueTracks = tracksForIds($player.queue);
+  $: favoriteTracks = $filteredTracks.filter((track) => track.favorite);
+  $: recentTracks = ($player.recentlyPlayed
     .map((trackId) => $player.tracks.find((track) => track.id === trackId))
-    .filter(Boolean) as Track[];
+    .filter(Boolean) as Track[])
+    .filter((track) => fuzzyMatch(`${track.title} ${track.artist} ${track.album}`, $player.search));
+  $: activeTracks =
+    $player.activeView === 'favorites'
+      ? favoriteTracks
+      : $player.activeView === 'recent'
+        ? recentTracks
+        : $filteredTracks;
+  $: albumGroups = Array.from(
+    $filteredTracks.reduce((groups, track) => {
+      const id = `${track.album}::${track.artist}`;
+      const group = groups.get(id) ?? {
+        id,
+        name: track.album,
+        artist: track.artist,
+        tracks: [],
+        duration: 0,
+        coverTrack: track
+      };
+      group.tracks.push(track);
+      group.duration += track.duration || 0;
+      groups.set(id, group);
+      return groups;
+    }, new Map<string, AlbumGroup>())
+  ).map(([, group]) => group);
+  $: artistGroups = Array.from(
+    $filteredTracks.reduce((groups, track) => {
+      const albums = groups.get(track.artist) ?? new Map<string, Track[]>();
+      const albumTracks = albums.get(track.album) ?? [];
+      albumTracks.push(track);
+      albums.set(track.album, albumTracks);
+      groups.set(track.artist, albums);
+      return groups;
+    }, new Map<string, Map<string, Track[]>>())
+  );
+  $: filteredPlaylists = $player.playlists.filter((playlist) =>
+    fuzzyMatch(`${playlist.name} ${tracksForIds(playlist.trackIds).map((track) => track.title).join(' ')}`, $player.search)
+  );
+  $: if (selectedPlaylistId && !$player.playlists.some((playlist) => playlist.id === selectedPlaylistId)) {
+    selectedPlaylistId = $player.playlists[0]?.id ?? '';
+  }
+  $: if (!selectedPlaylistId && $player.playlists.length > 0) {
+    selectedPlaylistId = $player.playlists[0].id;
+  }
+  $: selectedPlaylist = $player.playlists.find((playlist) => playlist.id === selectedPlaylistId);
   $: localTracksLoaded = $player.tracks.some((track) => track.source === 'local');
   $: if (audioElement) {
     audioElement.volume = $player.volume / 100;
+    audioElement.muted = $player.muted;
   }
 </script>
 
@@ -364,7 +718,7 @@
           </div>
           <div class="min-w-0">
             <p class="truncate text-sm font-semibold">Local Music</p>
-            <p class="truncate text-xs text-zinc-400">Tauri Library</p>
+            <p class="truncate text-xs text-zinc-400">Browser + Tauri</p>
           </div>
         </div>
 
@@ -397,16 +751,25 @@
           </div>
         </div>
 
+        <button
+          type="button"
+          class="mt-4 flex h-11 items-center justify-center gap-2 rounded-md bg-[#d7ff73] px-4 text-sm font-semibold text-[#101314] transition hover:bg-[#e4ff95]"
+          on:click={openAddMusic}
+        >
+          <Plus size={18} />
+          <span>Add Music</span>
+        </button>
+
         <div class="mt-auto rounded-lg border border-white/10 bg-[#f7a072]/10 p-4">
           <div class="mb-3 flex items-center justify-between">
             <Sparkles size={18} class="text-[#f7a072]" />
             <span class="rounded-full bg-white/10 px-2 py-1 text-[11px] font-medium text-zinc-200">
-              2026
+              Local
             </span>
           </div>
-          <p class="text-sm font-semibold leading-5 text-white">Local-first, lossless-ready.</p>
+          <p class="text-sm font-semibold leading-5 text-white">Your music stays on this device.</p>
           <p class="mt-2 text-xs leading-5 text-zinc-400">
-            Indexed library, playback engine, metadata, and plugins stay cleanly separated.
+            Metadata, playlists, favorites, and recent plays are stored in IndexedDB.
           </p>
         </div>
       </div>
@@ -421,7 +784,7 @@
               <span>Local Library</span>
             </div>
             <h1 class="mt-2 truncate text-2xl font-semibold tracking-normal sm:text-3xl">
-              {$player.activeView[0].toUpperCase() + $player.activeView.slice(1)}
+              {navItems.find((item) => item.id === $player.activeView)?.label ?? 'Library'}
             </h1>
           </div>
 
@@ -429,26 +792,15 @@
             <button
               type="button"
               class="flex h-11 items-center justify-center gap-2 rounded-md bg-[#d7ff73] px-4 text-sm font-semibold text-[#101314] transition hover:bg-[#e4ff95] disabled:opacity-70"
-              title="Scan folder"
-              disabled={isScanning}
-              on:click={scanLocalFolder}
+              disabled={isImporting}
+              on:click={openAddMusic}
             >
-              {#if isScanning}
+              {#if isImporting}
                 <LoaderCircle size={18} class="animate-spin" />
               {:else}
-                <FolderOpen size={18} />
+                <Plus size={18} />
               {/if}
-              <span class="whitespace-nowrap">Scan Folder</span>
-            </button>
-
-            <button
-              type="button"
-              class="flex h-11 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/8 px-3 text-sm font-medium text-zinc-200 transition hover:bg-white/12"
-              title="Import files"
-              on:click={() => openFilePicker(false)}
-            >
-              <FileMusic size={18} />
-              <span class="whitespace-nowrap sm:hidden xl:inline">Files</span>
+              <span class="whitespace-nowrap">Add Music</span>
             </button>
 
             <label
@@ -457,19 +809,11 @@
               <Search size={17} class="shrink-0 text-zinc-500" />
               <input
                 class="min-w-0 flex-1 bg-transparent text-zinc-100 outline-none placeholder:text-zinc-500"
-                placeholder="Search music"
+                placeholder="Search songs, artists, albums"
                 value={$player.search}
                 on:input={handleSearch}
               />
             </label>
-
-            <button
-              type="button"
-              class="grid h-11 w-full place-items-center rounded-md border border-white/10 bg-white/8 text-zinc-200 transition hover:bg-white/12 sm:w-11"
-              title="Filters"
-            >
-              <SlidersHorizontal size={18} />
-            </button>
           </div>
         </div>
 
@@ -517,7 +861,7 @@
         {/if}
       </div>
 
-      <div class="grid grid-cols-2 gap-2 border-b border-white/10 p-3 sm:grid-cols-4 sm:p-4">
+      <div class="grid grid-cols-2 gap-2 border-b border-white/10 p-3 sm:grid-cols-5 sm:p-4">
         <div class="rounded-md bg-black/18 p-3">
           <p class="text-lg font-semibold">{$libraryStats.tracks}</p>
           <p class="text-xs text-zinc-400">Songs</p>
@@ -534,104 +878,321 @@
           <p class="text-lg font-semibold">{$libraryStats.favorites}</p>
           <p class="text-xs text-zinc-400">Favorites</p>
         </div>
+        <div class="rounded-md bg-black/18 p-3">
+          <p class="text-lg font-semibold">{$libraryStats.playlists}</p>
+          <p class="text-xs text-zinc-400">Playlists</p>
+        </div>
       </div>
 
       <div class="thin-scrollbar max-h-[calc(100vh-330px)] min-h-[360px] overflow-y-auto p-2 sm:p-3 lg:max-h-[calc(100vh-250px)]">
-        <div class="hidden grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)_92px_78px] px-3 py-2 text-xs font-medium uppercase text-zinc-500 md:grid">
-          <span>Title</span>
-          <span>Album</span>
-          <span>Quality</span>
-          <span class="text-right">Time</span>
-        </div>
-
-        <div class="space-y-1">
-          {#if $filteredTracks.length === 0}
-            <div class="grid min-h-[280px] place-items-center rounded-md border border-dashed border-white/12 bg-black/12 p-6 text-center">
-              <div>
-                <div class="mx-auto grid size-12 place-items-center rounded-md bg-white/8 text-zinc-300">
-                  <FileMusic size={22} />
-                </div>
-                <p class="mt-4 text-sm font-semibold text-white">No songs loaded</p>
-                <p class="mt-1 text-sm text-zinc-400">Choose a folder or import audio files.</p>
-                <div class="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
-                  <button
-                    type="button"
-                    class="flex h-10 items-center justify-center gap-2 rounded-md bg-[#d7ff73] px-4 text-sm font-semibold text-[#101314]"
-                    on:click={scanLocalFolder}
-                  >
-                    <FolderOpen size={17} />
-                    <span>Scan Folder</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="flex h-10 items-center justify-center gap-2 rounded-md bg-white/8 px-4 text-sm font-medium text-zinc-200"
-                    on:click={() => openFilePicker(false)}
-                  >
-                    <FileMusic size={17} />
-                    <span>Import Files</span>
-                  </button>
-                </div>
+        {#if $player.tracks.length === 0}
+          <div class="grid min-h-[360px] place-items-center rounded-md border border-dashed border-white/12 bg-black/12 p-6 text-center">
+            <div>
+              <div class="mx-auto grid size-14 place-items-center rounded-md bg-white/8 text-zinc-300">
+                <FileMusic size={26} />
               </div>
+              <p class="mt-4 text-lg font-semibold text-white">Your library is empty</p>
+              <p class="mt-1 text-sm text-zinc-400">Add music from your device to start listening.</p>
+              <button
+                type="button"
+                class="mt-5 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#d7ff73] px-5 text-sm font-semibold text-[#101314]"
+                on:click={openAddMusic}
+              >
+                <Plus size={18} />
+                <span>Add Music</span>
+              </button>
             </div>
-          {:else}
-            {#each $filteredTracks as track}
-            <div
-              class={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md p-2 text-left transition md:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)_92px_78px] md:px-3 ${
-                track.id === $player.currentTrackId
-                  ? 'bg-[#d7ff73]/15 ring-1 ring-[#d7ff73]/35'
-                  : 'hover:bg-white/8'
-              }`}
-            >
-              <span class="flex min-w-0 items-center gap-3">
-                <span
-                  class="relative grid size-12 shrink-0 place-items-center overflow-hidden rounded-md"
-                  style={coverStyle(track)}
-                >
-                  <Disc3 size={22} class="text-black/70" />
-                </span>
-                <span class="min-w-0">
-                  <span class="flex min-w-0 items-center gap-2">
-                    <span class="truncate text-sm font-semibold text-white">{track.title}</span>
-                    {#if track.favorite}
-                      <Star size={14} class="shrink-0 fill-[#ffd166] text-[#ffd166]" />
-                    {/if}
-                  </span>
-                  <span class="mt-1 block truncate text-xs text-zinc-400">{track.artist}</span>
-                </span>
-              </span>
-
-              <span class="hidden min-w-0 md:block">
-                <span class="block truncate text-sm text-zinc-300">{track.album}</span>
-                <span class="mt-1 block truncate text-xs text-zinc-500">{track.genre} - {track.year}</span>
-              </span>
-
-              <span class="hidden text-xs font-semibold text-[#8bd3ff] md:block">
-                {track.fileType}
-              </span>
-
-              <span class="flex items-center gap-2 justify-self-end">
-                <span class="hidden text-sm text-zinc-400 md:inline">{formatDuration(track.duration)}</span>
+          </div>
+        {:else if $player.activeView === 'home'}
+          <div class="grid gap-3 lg:grid-cols-2">
+            <section class="rounded-md bg-black/16 p-4">
+              <div class="flex items-center justify-between">
+                <h2 class="text-sm font-semibold">Recently Played</h2>
                 <button
                   type="button"
-                  class={`grid size-9 place-items-center rounded-md ${
-                    track.id === $player.currentTrackId && $player.isPlaying
-                      ? 'bg-white text-[#101314]'
-                      : 'bg-white/8 text-zinc-200'
-                  }`}
-                  on:click|stopPropagation={() => toggleTrack(track)}
-                  title={track.id === $player.currentTrackId && $player.isPlaying ? 'Pause' : 'Play'}
+                  class="text-xs font-medium text-[#d7ff73]"
+                  on:click={() => player.setView('recent')}
                 >
-                  {#if track.id === $player.currentTrackId && $player.isPlaying}
-                    <Pause size={16} />
-                  {:else}
-                    <Play size={16} />
-                  {/if}
+                  View
                 </button>
-              </span>
-            </div>
+              </div>
+              <div class="mt-3 space-y-1">
+                {#each recentTracks.slice(0, 5) as track}
+                  {@render TrackRow(track, true)}
+                {:else}
+                  <p class="text-sm text-zinc-500">Nothing played yet.</p>
+                {/each}
+              </div>
+            </section>
+            <section class="rounded-md bg-black/16 p-4">
+              <div class="flex items-center justify-between">
+                <h2 class="text-sm font-semibold">Favorites</h2>
+                <button
+                  type="button"
+                  class="text-xs font-medium text-[#d7ff73]"
+                  on:click={() => player.setView('favorites')}
+                >
+                  View
+                </button>
+              </div>
+              <div class="mt-3 space-y-1">
+                {#each favoriteTracks.slice(0, 5) as track}
+                  {@render TrackRow(track, true)}
+                {:else}
+                  <p class="text-sm text-zinc-500">No favorites yet.</p>
+                {/each}
+              </div>
+            </section>
+            <section class="rounded-md bg-black/16 p-4 lg:col-span-2">
+              <div class="flex items-center justify-between">
+                <h2 class="text-sm font-semibold">Albums</h2>
+                <button
+                  type="button"
+                  class="text-xs font-medium text-[#d7ff73]"
+                  on:click={() => player.setView('albums')}
+                >
+                  View
+                </button>
+              </div>
+              <div class="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {#each albumGroups.slice(0, 6) as album}
+                  <button
+                    type="button"
+                    class="flex min-w-0 items-center gap-3 rounded-md bg-white/6 p-2 text-left transition hover:bg-white/10"
+                    on:click={() => playTrackIds(album.tracks.map((track) => track.id))}
+                  >
+                    <span class="grid size-12 shrink-0 place-items-center rounded-md" style={coverStyle(album.coverTrack)}>
+                      <Disc3 size={20} class="text-black/60" />
+                    </span>
+                    <span class="min-w-0">
+                      <span class="block truncate text-sm font-semibold">{album.name}</span>
+                      <span class="mt-1 block truncate text-xs text-zinc-500">{album.artist}</span>
+                    </span>
+                  </button>
+                {/each}
+              </div>
+            </section>
+          </div>
+        {:else if $player.activeView === 'artists'}
+          <div class="space-y-3">
+            {#each artistGroups as [artist, albums]}
+              <section class="rounded-md bg-black/16 p-4">
+                <h2 class="text-base font-semibold">{artist}</h2>
+                <div class="mt-3 space-y-3">
+                  {#each Array.from(albums) as [album, tracks]}
+                    <div class="rounded-md border border-white/10 bg-white/5 p-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                          <p class="truncate text-sm font-semibold">{album}</p>
+                          <p class="mt-1 text-xs text-zinc-500">{tracks.length} songs</p>
+                        </div>
+                        <button
+                          type="button"
+                          class="grid size-9 place-items-center rounded-md bg-white text-[#101314]"
+                          on:click={() => playTrackIds(tracks.map((track) => track.id))}
+                          title="Play album"
+                        >
+                          <Play size={16} />
+                        </button>
+                      </div>
+                      <div class="mt-2 space-y-1">
+                        {#each tracks as track}
+                          {@render TrackRow(track, true)}
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              </section>
             {/each}
-          {/if}
-        </div>
+          </div>
+        {:else if $player.activeView === 'albums'}
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {#each albumGroups as album}
+              <section class="rounded-md border border-white/10 bg-black/16 p-3">
+                <div class="aspect-square rounded-md p-3" style={coverStyle(album.coverTrack)}>
+                  <div class="flex h-full items-end">
+                    <div class="w-full rounded-md bg-black/35 p-3 backdrop-blur-md">
+                      <p class="truncate text-sm font-semibold">{album.name}</p>
+                      <p class="mt-1 truncate text-xs text-white/70">{album.artist}</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-3 flex items-center justify-between gap-2">
+                  <div class="min-w-0 text-xs text-zinc-500">
+                    {album.tracks.length} tracks - {formatDuration(album.duration)}
+                  </div>
+                  <button
+                    type="button"
+                    class="grid size-9 place-items-center rounded-md bg-white text-[#101314]"
+                    on:click={() => playTrackIds(album.tracks.map((track) => track.id))}
+                    title="Play album"
+                  >
+                    <Play size={16} />
+                  </button>
+                </div>
+              </section>
+            {/each}
+          </div>
+        {:else if $player.activeView === 'playlists'}
+          <div class="grid gap-3 xl:grid-cols-[300px_minmax(0,1fr)]">
+            <section class="rounded-md bg-black/16 p-4">
+              <h2 class="text-sm font-semibold">Playlists</h2>
+              <div class="mt-3 flex gap-2">
+                <input
+                  class="h-10 min-w-0 flex-1 rounded-md border border-white/10 bg-black/22 px-3 text-sm outline-none placeholder:text-zinc-500"
+                  placeholder="New playlist"
+                  bind:value={newPlaylistName}
+                />
+                <button
+                  type="button"
+                  class="grid size-10 place-items-center rounded-md bg-[#d7ff73] text-[#101314]"
+                  on:click={createPlaylist}
+                  title="Create playlist"
+                >
+                  <Plus size={18} />
+                </button>
+              </div>
+              <div class="mt-4 space-y-1">
+                {#each filteredPlaylists as playlist}
+                  <button
+                    type="button"
+                    class={`flex h-12 w-full items-center justify-between gap-2 rounded-md px-3 text-left ${
+                      selectedPlaylistId === playlist.id ? 'bg-white/14' : 'hover:bg-white/8'
+                    }`}
+                    on:click={() => (selectedPlaylistId = playlist.id)}
+                  >
+                    <span class="min-w-0">
+                      <span class="block truncate text-sm font-semibold">{playlist.name}</span>
+                      <span class="text-xs text-zinc-500">{playlist.trackIds.length} songs</span>
+                    </span>
+                    <Library size={16} class="shrink-0 text-zinc-500" />
+                  </button>
+                {:else}
+                  <p class="text-sm text-zinc-500">No playlists yet.</p>
+                {/each}
+              </div>
+            </section>
+
+            <section class="rounded-md bg-black/16 p-4">
+              {#if selectedPlaylist}
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div class="min-w-0">
+                    {#if renamePlaylistId === selectedPlaylist.id}
+                      <div class="flex gap-2">
+                        <input
+                          class="h-10 min-w-0 rounded-md border border-white/10 bg-black/22 px-3 text-sm outline-none"
+                          bind:value={renamePlaylistName}
+                        />
+                        <button
+                          type="button"
+                          class="rounded-md bg-white px-3 text-sm font-semibold text-[#101314]"
+                          on:click={saveRename}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    {:else}
+                      <h2 class="truncate text-base font-semibold">{selectedPlaylist.name}</h2>
+                    {/if}
+                    <p class="mt-1 text-xs text-zinc-500">
+                      {selectedPlaylist.trackIds.length} songs - {formatDuration(totalDuration(tracksForIds(selectedPlaylist.trackIds)))}
+                    </p>
+                  </div>
+                  <div class="flex gap-2">
+                    <button
+                      type="button"
+                      class="grid size-9 place-items-center rounded-md bg-white text-[#101314]"
+                      on:click={() => playTrackIds(selectedPlaylist.trackIds)}
+                      title="Play playlist"
+                    >
+                      <Play size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      class="grid size-9 place-items-center rounded-md bg-white/8 text-zinc-200"
+                      on:click={() => startRename(selectedPlaylist)}
+                      title="Rename playlist"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      class="grid size-9 place-items-center rounded-md bg-[#ffafcc]/14 text-[#ffafcc]"
+                      on:click={() => player.deletePlaylist(selectedPlaylist.id)}
+                      title="Delete playlist"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div class="mt-4 space-y-1">
+                  {#each tracksForIds(selectedPlaylist.trackIds) as track}
+                    <div class="flex items-center gap-2 rounded-md hover:bg-white/8">
+                      <div class="min-w-0 flex-1">
+                        {@render TrackRow(track, true)}
+                      </div>
+                      <button
+                        type="button"
+                        class="grid size-8 shrink-0 place-items-center rounded-md bg-white/8 text-zinc-300"
+                        on:click={() => player.movePlaylistTrack(selectedPlaylist.id, track.id, -1)}
+                        title="Move up"
+                      >
+                        <ChevronUp size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        class="grid size-8 shrink-0 place-items-center rounded-md bg-white/8 text-zinc-300"
+                        on:click={() => player.movePlaylistTrack(selectedPlaylist.id, track.id, 1)}
+                        title="Move down"
+                      >
+                        <ChevronDown size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        class="grid size-8 shrink-0 place-items-center rounded-md bg-white/8 text-zinc-300"
+                        on:click={() => player.removeFromPlaylist(selectedPlaylist.id, track.id)}
+                        title="Remove from playlist"
+                      >
+                        <Minus size={15} />
+                      </button>
+                    </div>
+                  {:else}
+                    <p class="rounded-md border border-dashed border-white/12 p-4 text-sm text-zinc-500">
+                      Add songs from the Songs page.
+                    </p>
+                  {/each}
+                </div>
+              {:else}
+                <p class="text-sm text-zinc-500">Create a playlist to start collecting songs.</p>
+              {/if}
+            </section>
+          </div>
+        {:else}
+          <div class="hidden grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)_86px_150px_78px] px-3 py-2 text-xs font-medium uppercase text-zinc-500 md:grid">
+            <span>Title</span>
+            <span>Album</span>
+            <span>Quality</span>
+            <span>Actions</span>
+            <span class="text-right">Time</span>
+          </div>
+
+          <div class="space-y-1">
+            {#each activeTracks as track}
+              {@render TrackRow(track)}
+            {:else}
+              <div class="grid min-h-[280px] place-items-center rounded-md border border-dashed border-white/12 bg-black/12 p-6 text-center">
+                <div>
+                  <div class="mx-auto grid size-12 place-items-center rounded-md bg-white/8 text-zinc-300">
+                    <FileMusic size={22} />
+                  </div>
+                  <p class="mt-4 text-sm font-semibold text-white">No songs found</p>
+                  <p class="mt-1 text-sm text-zinc-400">Try another search or add more music.</p>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
     </section>
 
@@ -667,7 +1228,7 @@
                   : 'bg-white/8 text-zinc-300 hover:bg-white/12'
               }`}
               title="Favorite"
-              on:click={() => $currentTrack && player.toggleFavorite($currentTrack.id)}
+              on:click={() => toggleFavorite($currentTrack)}
             >
               <Heart size={18} fill={$currentTrack.favorite ? 'currentColor' : 'none'} />
             </button>
@@ -685,39 +1246,55 @@
 
         <div class="thin-scrollbar mt-3 max-h-[280px] space-y-1 overflow-y-auto lg:max-h-[calc(100vh-560px)]">
           {#each queueTracks as track, index}
-            <button
-              type="button"
-              class={`flex h-14 w-full items-center gap-3 rounded-md px-2 text-left transition ${
+            <div
+              class={`flex h-14 w-full items-center gap-3 rounded-md px-2 transition ${
                 track.id === $player.currentTrackId ? 'bg-white/12' : 'hover:bg-white/8'
               }`}
-              on:click={() => playTrack(track)}
             >
-              <span class="w-5 shrink-0 text-center text-xs text-zinc-500">
-                {(index + 1).toString().padStart(2, '0')}
-              </span>
-              <span
-                class="grid size-9 shrink-0 place-items-center rounded-md"
-                style={coverStyle(track)}
+              <button
+                type="button"
+                class="flex min-w-0 flex-1 items-center gap-3 text-left"
+                on:click={() => playTrack(track)}
               >
-                <Disc3 size={17} class="text-black/60" />
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-medium text-zinc-100">{track.title}</span>
-                <span class="mt-0.5 block truncate text-xs text-zinc-500">{track.artist}</span>
-              </span>
-              <span class="text-xs text-zinc-500">{formatDuration(track.duration)}</span>
-            </button>
+                <span class="w-5 shrink-0 text-center text-xs text-zinc-500">
+                  {(index + 1).toString().padStart(2, '0')}
+                </span>
+                <span class="grid size-9 shrink-0 place-items-center rounded-md" style={coverStyle(track)}>
+                  <Disc3 size={17} class="text-black/60" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-medium text-zinc-100">{track.title}</span>
+                  <span class="mt-0.5 block truncate text-xs text-zinc-500">{track.artist}</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="grid size-8 shrink-0 place-items-center rounded-md text-zinc-500 hover:bg-white/8 hover:text-zinc-200"
+                on:click={() => removeFromQueue(track)}
+                title="Remove from queue"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          {:else}
+            <p class="rounded-md border border-dashed border-white/12 p-4 text-sm text-zinc-500">
+              Queue is empty.
+            </p>
           {/each}
         </div>
 
         <div class="mt-4 grid grid-cols-2 gap-2">
-          {#each $player.playlists as playlist}
+          {#each $player.playlists.slice(0, 4) as playlist}
             <button
               type="button"
               class="rounded-md border border-white/10 bg-black/18 p-3 text-left transition hover:bg-white/10"
+              on:click={() => {
+                selectedPlaylistId = playlist.id;
+                player.setView('playlists');
+              }}
             >
               <p class="truncate text-sm font-semibold">{playlist.name}</p>
-              <p class="mt-1 text-xs text-zinc-500">{playlist.count} songs</p>
+              <p class="mt-1 text-xs text-zinc-500">{playlist.trackIds.length} songs</p>
             </button>
           {/each}
         </div>
@@ -735,7 +1312,7 @@
         </div>
         <div class="min-w-0">
           <p class="truncate text-sm font-semibold">{$currentTrack?.title ?? 'No track selected'}</p>
-          <p class="mt-1 truncate text-xs text-zinc-400">{$currentTrack?.artist ?? 'Scan local music'}</p>
+          <p class="mt-1 truncate text-xs text-zinc-400">{$currentTrack?.artist ?? 'Add local music'}</p>
         </div>
       </div>
 
@@ -761,7 +1338,7 @@
           </button>
           <button
             type="button"
-            class="grid size-11 place-items-center rounded-full bg-white text-[#101314] shadow-lg shadow-white/10 transition hover:scale-[1.03]"
+            class="grid size-11 place-items-center rounded-full bg-white text-[#101314] shadow-lg shadow-white/10 transition hover:scale-[1.03] disabled:opacity-50"
             title={$player.isPlaying ? 'Pause' : 'Play'}
             disabled={!$currentTrack}
             on:click={togglePlayback}
@@ -821,7 +1398,18 @@
       </div>
 
       <div class="hidden min-w-0 items-center gap-3 lg:flex">
-        <Volume2 size={18} class="shrink-0 text-zinc-400" />
+        <button
+          type="button"
+          class="grid size-9 shrink-0 place-items-center rounded-md text-zinc-400 transition hover:bg-white/8 hover:text-white"
+          on:click={() => player.toggleMuted()}
+          title={$player.muted ? 'Unmute' : 'Mute'}
+        >
+          {#if $player.muted}
+            <VolumeX size={18} />
+          {:else}
+            <Volume2 size={18} />
+          {/if}
+        </button>
         <label class="relative flex h-5 flex-1 items-center">
           <span class="absolute h-1 w-full rounded-full bg-white/12"></span>
           <span
@@ -842,6 +1430,143 @@
       </div>
     </div>
   </section>
+
+  {#if isImportOpen}
+    <div class="fixed inset-0 z-40 grid place-items-center bg-black/65 px-3 py-6 backdrop-blur-sm">
+      <section class="w-full max-w-2xl rounded-lg border border-white/12 bg-[#161817] p-4 shadow-2xl shadow-black/50 sm:p-5">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-semibold">Add Your Music</h2>
+            <p class="mt-1 text-sm text-zinc-400">Select music from your device.</p>
+          </div>
+          <button
+            type="button"
+            class="grid size-9 place-items-center rounded-md bg-white/8 text-zinc-300 hover:bg-white/12"
+            on:click={closeAddMusic}
+            title="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div class="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            class="flex h-12 items-center justify-center gap-2 rounded-md bg-[#d7ff73] px-4 text-sm font-semibold text-[#101314] disabled:opacity-70"
+            disabled={isImporting}
+            on:click={() => openFilePicker('songs')}
+          >
+            <FileMusic size={18} />
+            <span>Select Songs</span>
+          </button>
+          <button
+            type="button"
+            class="flex h-12 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/8 px-4 text-sm font-semibold text-zinc-100 disabled:opacity-70"
+            disabled={isImporting}
+            on:click={scanLocalFolder}
+          >
+            <FolderOpen size={18} />
+            <span>Select Folder</span>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          class={`mt-4 grid min-h-[180px] w-full place-items-center rounded-lg border border-dashed p-6 text-center transition ${
+            isDragOver
+              ? 'border-[#d7ff73] bg-[#d7ff73]/10'
+              : 'border-white/16 bg-black/18 hover:bg-black/24'
+          }`}
+          on:dragenter|preventDefault={() => (isDragOver = true)}
+          on:dragover|preventDefault={() => (isDragOver = true)}
+          on:dragleave|preventDefault={() => (isDragOver = false)}
+          on:drop={handleDrop}
+          on:click={() => openFilePicker('songs')}
+        >
+          <span>
+            <span class="mx-auto grid size-12 place-items-center rounded-md bg-white/8 text-zinc-200">
+              <UploadCloud size={24} />
+            </span>
+            <span class="mt-3 block text-sm font-semibold text-white">Drag & Drop your music here</span>
+            <span class="mt-1 block text-xs text-zinc-500">
+              MP3, WAV, FLAC, M4A, AAC, OGG, OPUS, AIFF, and WebM where Chrome supports them.
+            </span>
+          </span>
+        </button>
+
+        <div class="mt-4 grid gap-2 sm:grid-cols-3">
+          <div class="rounded-md border border-white/10 bg-black/18 p-3">
+            <p class="text-xs text-zinc-500">IndexedDB</p>
+            <p class="mt-1 flex items-center gap-2 text-sm font-semibold">
+              {#if browserCapabilities.indexedDb}
+                <CheckCircle2 size={15} class="text-[#d7ff73]" />
+                <span>Available</span>
+              {:else}
+                <AlertCircle size={15} class="text-[#ffafcc]" />
+                <span>Unavailable</span>
+              {/if}
+            </p>
+          </div>
+          <div class="rounded-md border border-white/10 bg-black/18 p-3">
+            <p class="text-xs text-zinc-500">Folder Picker</p>
+            <p class="mt-1 flex items-center gap-2 text-sm font-semibold">
+              {#if browserCapabilities.folderPicker || browserCapabilities.directoryInput}
+                <CheckCircle2 size={15} class="text-[#d7ff73]" />
+                <span>Supported</span>
+              {:else}
+                <AlertCircle size={15} class="text-[#ffafcc]" />
+                <span>Files only</span>
+              {/if}
+            </p>
+          </div>
+          <div class="rounded-md border border-white/10 bg-black/18 p-3">
+            <p class="text-xs text-zinc-500">Storage</p>
+            <p class="mt-1 text-sm font-semibold">Local only</p>
+          </div>
+        </div>
+
+        {#if isImporting}
+          <div class="mt-4 rounded-md border border-white/10 bg-black/18 p-3">
+            <div class="flex items-center justify-between gap-3 text-sm">
+              <span class="flex min-w-0 items-center gap-2">
+                <LoaderCircle size={16} class="shrink-0 animate-spin text-[#d7ff73]" />
+                <span class="truncate">Importing {importFileName || 'music'}...</span>
+              </span>
+              <span class="shrink-0 text-zinc-400">{importCurrent} / {importTotal}</span>
+            </div>
+            <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div
+                class="h-full rounded-full bg-[#d7ff73]"
+                style={`width: ${importTotal > 0 ? Math.round((importCurrent / importTotal) * 100) : 8}%`}
+              ></div>
+            </div>
+          </div>
+        {/if}
+
+        {#if scanError}
+          <div class="mt-4 rounded-md border border-[#ffafcc]/30 bg-[#ffafcc]/10 p-3 text-sm text-[#ffcfdf]">
+            {scanError}
+          </div>
+        {/if}
+      </section>
+    </div>
+  {/if}
+
+  <div class="fixed right-3 top-3 z-50 grid w-[min(360px,calc(100vw-1.5rem))] gap-2">
+    {#each toasts as toast}
+      <div
+        class={`rounded-md border px-3 py-2 text-sm shadow-xl backdrop-blur-md ${
+          toast.tone === 'success'
+            ? 'border-[#d7ff73]/30 bg-[#d7ff73]/12 text-[#ecffb8]'
+            : toast.tone === 'error'
+              ? 'border-[#ffafcc]/30 bg-[#ffafcc]/12 text-[#ffcfdf]'
+              : 'border-white/12 bg-[#161817]/95 text-zinc-200'
+        }`}
+      >
+        {toast.message}
+      </div>
+    {/each}
+  </div>
 
   <input
     bind:this={fileInput}
@@ -870,3 +1595,114 @@
     on:timeupdate={handleAudioTimeUpdate}
   ></audio>
 </main>
+
+{#snippet TrackRow(track: Track, compact = false)}
+  <div
+    class={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md p-2 text-left transition ${
+      compact
+        ? ''
+        : 'md:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)_86px_150px_78px] md:px-3'
+    } ${
+      track.id === $player.currentTrackId
+        ? 'bg-[#d7ff73]/15 ring-1 ring-[#d7ff73]/35'
+        : 'hover:bg-white/8'
+    }`}
+  >
+    <span class="flex min-w-0 items-center gap-3">
+      <span
+        class="relative grid size-12 shrink-0 place-items-center overflow-hidden rounded-md"
+        style={coverStyle(track)}
+      >
+        <Disc3 size={22} class="text-black/70" />
+      </span>
+      <span class="min-w-0">
+        <span class="flex min-w-0 items-center gap-2">
+          <span class="truncate text-sm font-semibold text-white">{track.title}</span>
+          {#if track.favorite}
+            <Star size={14} class="shrink-0 fill-[#ffd166] text-[#ffd166]" />
+          {/if}
+        </span>
+        <span class="mt-1 block truncate text-xs text-zinc-400">{track.artist}</span>
+      </span>
+    </span>
+
+    {#if !compact}
+      <span class="hidden min-w-0 md:block">
+        <span class="block truncate text-sm text-zinc-300">{track.album}</span>
+        <span class="mt-1 block truncate text-xs text-zinc-500">
+          {track.genre} - {track.year || 'Unknown'} - {formatFileSize(track.size)}
+        </span>
+      </span>
+
+      <span class="hidden text-xs font-semibold text-[#8bd3ff] md:block">
+        {track.fileType}
+      </span>
+
+      <span class="hidden items-center gap-1 md:flex">
+        <button
+          type="button"
+          class="grid size-8 place-items-center rounded-md bg-white/8 text-zinc-300 hover:bg-white/12"
+          on:click={() => playNext(track)}
+          title="Play next"
+        >
+          <ListPlus size={15} />
+        </button>
+        <button
+          type="button"
+          class="grid size-8 place-items-center rounded-md bg-white/8 text-zinc-300 hover:bg-white/12"
+          on:click={() => addToQueue(track)}
+          title="Add to queue"
+        >
+          <Plus size={15} />
+        </button>
+        <button
+          type="button"
+          class={`grid size-8 place-items-center rounded-md ${
+            track.favorite ? 'bg-[#ffafcc]/16 text-[#ffafcc]' : 'bg-white/8 text-zinc-300'
+          }`}
+          on:click={() => toggleFavorite(track)}
+          title="Favorite"
+        >
+          <Heart size={15} fill={track.favorite ? 'currentColor' : 'none'} />
+        </button>
+        {#if $player.playlists.length > 0}
+          <select
+            class="h-8 max-w-[78px] rounded-md border border-white/10 bg-[#161817] px-1 text-xs text-zinc-300 outline-none"
+            aria-label="Add to playlist"
+            on:change={(event) => {
+              addTrackToPlaylist((event.currentTarget as HTMLSelectElement).value, track);
+              (event.currentTarget as HTMLSelectElement).value = '';
+            }}
+          >
+            <option value="">Playlist</option>
+            {#each $player.playlists as playlist}
+              <option value={playlist.id}>{playlist.name}</option>
+            {/each}
+          </select>
+        {/if}
+      </span>
+    {/if}
+
+    <span class="flex items-center gap-2 justify-self-end">
+      {#if !compact}
+        <span class="hidden text-sm text-zinc-400 md:inline">{formatDuration(track.duration)}</span>
+      {/if}
+      <button
+        type="button"
+        class={`grid size-9 place-items-center rounded-md ${
+          track.id === $player.currentTrackId && $player.isPlaying
+            ? 'bg-white text-[#101314]'
+            : 'bg-white/8 text-zinc-200'
+        }`}
+        on:click={() => toggleTrack(track)}
+        title={track.id === $player.currentTrackId && $player.isPlaying ? 'Pause' : 'Play'}
+      >
+        {#if track.id === $player.currentTrackId && $player.isPlaying}
+          <Pause size={16} />
+        {:else}
+          <Play size={16} />
+        {/if}
+      </button>
+    </span>
+  </div>
+{/snippet}

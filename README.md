@@ -42,6 +42,19 @@ npm run tauri dev
 Rust is required for Tauri desktop builds. Install it from rustup before running
 desktop commands.
 
+## Web Deployment on Vercel
+
+This web build is configured as a static SvelteKit deployment for Vercel.
+
+Vercel settings:
+
+- Build command: `npm run build`
+- Output directory: `build`
+- Install command: `npm install`
+
+The `vercel.json` file sets the build command, output directory, and an SPA
+rewrite to `index.html`.
+
 ## Next Backend Milestones
 
 1. Replace demo frontend data with `scan_library` results persisted in SQLite.

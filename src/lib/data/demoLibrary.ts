@@ -116,8 +116,8 @@ export const demoTracks: Track[] = [
 ];
 
 export const demoPlaylists: Playlist[] = [
-  { id: 'favorites', name: 'Favorites', count: 3 },
-  { id: 'late-night', name: 'Late Night', count: 18 },
-  { id: 'lossless', name: 'Lossless Finds', count: 42 },
-  { id: 'recent', name: 'Recently Added', count: 31 }
+  { id: 'favorites', name: 'Favorites', trackIds: ['phase-shift', 'paper-sun', 'signal-house'] },
+  { id: 'late-night', name: 'Late Night', trackIds: ['phase-shift', 'static-bloom'] },
+  { id: 'lossless', name: 'Lossless Finds', trackIds: ['phase-shift', 'soft-reset'] },
+  { id: 'recent', name: 'Recently Added', trackIds: ['glass-harbor', 'paper-sun'] }
 ];

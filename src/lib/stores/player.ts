@@ -1,32 +1,77 @@
 import { derived, writable } from 'svelte/store';
 import { demoPlaylists, demoTracks } from '$lib/data/demoLibrary';
-import type { LibraryView, PlayerState, RepeatMode, Track } from '$lib/types/music';
+import type { LibraryView, PlayerState, Playlist, RepeatMode, Track } from '$lib/types/music';
 import { clamp } from '$lib/utils/format';
 
 const initialState: PlayerState = {
-  tracks: demoTracks,
-  playlists: demoPlaylists,
-  queue: demoTracks.map((track) => track.id),
-  currentTrackId: demoTracks[0]?.id ?? '',
+  tracks: [],
+  playlists: [],
+  queue: [],
+  currentTrackId: '',
   isPlaying: false,
-  position: 76,
+  position: 0,
   volume: 72,
+  muted: false,
   repeat: 'all',
   shuffle: false,
-  activeView: 'songs',
+  activeView: 'home',
   search: '',
-  selectedGenre: 'All'
+  selectedGenre: 'All',
+  recentlyPlayed: []
 };
+
+function uniqueIds(trackIds: string[]) {
+  return Array.from(new Set(trackIds.filter(Boolean)));
+}
+
+function normalizePlaylist(playlist: Playlist): Playlist {
+  const trackIds = uniqueIds(playlist.trackIds ?? []);
+
+  return {
+    ...playlist,
+    trackIds,
+    count: trackIds.length
+  };
+}
+
+function normalizeTracks(tracks: Track[]) {
+  return tracks.map((track) => ({
+    ...track,
+    artist: track.artist || 'Unknown Artist',
+    album: track.album || 'Unknown Album',
+    title: track.title || track.fileName || 'Untitled',
+    favorite: Boolean(track.favorite)
+  }));
+}
+
+function findNextQueueTrack(state: PlayerState, direction: 1 | -1) {
+  if (state.queue.length === 0) return '';
+
+  const currentIndex = state.queue.indexOf(state.currentTrackId);
+  const fallbackIndex = currentIndex === -1 ? 0 : currentIndex;
+  const nextIndex = fallbackIndex + direction;
+
+  if (nextIndex < 0) {
+    return state.queue[state.queue.length - 1] ?? '';
+  }
+
+  if (nextIndex >= state.queue.length) {
+    return state.repeat === 'off' ? '' : (state.queue[0] ?? '');
+  }
+
+  return state.queue[nextIndex] ?? '';
+}
 
 function createPlayerStore() {
   const { subscribe, update } = writable<PlayerState>(initialState);
 
   const move = (direction: 1 | -1) =>
     update((state) => {
-      const currentIndex = state.queue.indexOf(state.currentTrackId);
-      const fallbackIndex = currentIndex === -1 ? 0 : currentIndex;
-      const nextIndex = (fallbackIndex + direction + state.queue.length) % state.queue.length;
-      const nextTrackId = state.queue[nextIndex] ?? state.currentTrackId;
+      const nextTrackId = findNextQueueTrack(state, direction);
+
+      if (!nextTrackId) {
+        return { ...state, isPlaying: false };
+      }
 
       return {
         ...state,
@@ -42,6 +87,8 @@ function createPlayerStore() {
     setSearch: (search: string) => update((state) => ({ ...state, search })),
     setGenre: (selectedGenre: string) => update((state) => ({ ...state, selectedGenre })),
     setVolume: (volume: number) => update((state) => ({ ...state, volume: clamp(volume, 0, 100) })),
+    setMuted: (muted: boolean) => update((state) => ({ ...state, muted })),
+    toggleMuted: () => update((state) => ({ ...state, muted: !state.muted })),
     setPlaying: (isPlaying: boolean) => update((state) => ({ ...state, isPlaying })),
     setPosition: (position: number) =>
       update((state) => {
@@ -55,27 +102,86 @@ function createPlayerStore() {
           track.id === trackId ? { ...track, duration: Math.max(0, Math.round(duration)) } : track
         )
       })),
+    setLibrary: (tracks: Track[], playlists: Playlist[] = [], recentlyPlayed: string[] = []) =>
+      update((state) => {
+        const normalizedTracks = normalizeTracks(tracks);
+        const trackIds = normalizedTracks.map((track) => track.id);
+        const currentTrackId = trackIds.includes(state.currentTrackId)
+          ? state.currentTrackId
+          : (trackIds[0] ?? '');
+
+        return {
+          ...state,
+          tracks: normalizedTracks,
+          playlists: playlists.map(normalizePlaylist),
+          queue: state.queue.filter((trackId) => trackIds.includes(trackId)),
+          currentTrackId,
+          isPlaying: false,
+          position: 0,
+          activeView: normalizedTracks.length > 0 ? 'songs' : 'home',
+          selectedGenre: 'All',
+          recentlyPlayed: recentlyPlayed.filter((trackId) => trackIds.includes(trackId))
+        };
+      }),
     loadTracks: (tracks: Track[]) =>
+      update((state) => {
+        const normalizedTracks = normalizeTracks(tracks);
+        const trackIds = normalizedTracks.map((track) => track.id);
+
+        return {
+          ...state,
+          tracks: normalizedTracks,
+          queue: trackIds,
+          currentTrackId: trackIds[0] ?? '',
+          isPlaying: false,
+          position: 0,
+          activeView: normalizedTracks.length > 0 ? 'songs' : 'home',
+          selectedGenre: 'All',
+          recentlyPlayed: state.recentlyPlayed.filter((trackId) => trackIds.includes(trackId))
+        };
+      }),
+    appendTracks: (tracks: Track[]) =>
+      update((state) => {
+        const existingIds = new Set(state.tracks.map((track) => track.id));
+        const incomingTracks = normalizeTracks(tracks).filter((track) => !existingIds.has(track.id));
+        const nextTracks = [...state.tracks, ...incomingTracks];
+        const nextIds = nextTracks.map((track) => track.id);
+
+        return {
+          ...state,
+          tracks: nextTracks,
+          queue: state.queue.length > 0
+            ? uniqueIds([...state.queue, ...incomingTracks.map((track) => track.id)])
+            : nextIds,
+          currentTrackId: state.currentTrackId || nextIds[0] || '',
+          activeView: nextTracks.length > 0 ? 'songs' : 'home'
+        };
+      }),
+    clearLibrary: () =>
       update((state) => ({
         ...state,
-        tracks,
-        queue: tracks.map((track) => track.id),
-        currentTrackId: tracks[0]?.id ?? '',
+        tracks: [],
+        playlists: [],
+        queue: [],
+        currentTrackId: '',
         isPlaying: false,
         position: 0,
-        activeView: 'songs',
-        selectedGenre: 'All'
+        activeView: 'home',
+        selectedGenre: 'All',
+        recentlyPlayed: []
       })),
     resetToDemo: () =>
       update((state) => ({
         ...state,
         tracks: demoTracks,
+        playlists: demoPlaylists.map(normalizePlaylist),
         queue: demoTracks.map((track) => track.id),
         currentTrackId: demoTracks[0]?.id ?? '',
         isPlaying: false,
         position: 76,
         activeView: 'songs',
-        selectedGenre: 'All'
+        selectedGenre: 'All',
+        recentlyPlayed: []
       })),
     selectTrack: (currentTrackId: string) =>
       update((state) => ({
@@ -94,8 +200,25 @@ function createPlayerStore() {
         ...state,
         currentTrackId,
         isPlaying: true,
-        position: state.currentTrackId === currentTrackId ? state.position : 0
+        position: state.currentTrackId === currentTrackId ? state.position : 0,
+        queue: state.queue.includes(currentTrackId) ? state.queue : [currentTrackId, ...state.queue]
       })),
+    playQueue: (trackIds: string[], startTrackId?: string) =>
+      update((state) => {
+        const validTrackIds = trackIds.filter((trackId) => state.tracks.some((track) => track.id === trackId));
+        const currentTrackId =
+          startTrackId && validTrackIds.includes(startTrackId)
+            ? startTrackId
+            : (validTrackIds[0] ?? state.currentTrackId);
+
+        return {
+          ...state,
+          queue: validTrackIds,
+          currentTrackId,
+          position: 0,
+          isPlaying: Boolean(currentTrackId)
+        };
+      }),
     togglePlayback: () => update((state) => ({ ...state, isPlaying: !state.isPlaying })),
     previous: () => move(-1),
     next: () => move(1),
@@ -113,6 +236,123 @@ function createPlayerStore() {
           track.id === trackId ? { ...track, favorite: !track.favorite } : track
         )
       })),
+    setFavorites: (favoriteIds: string[]) =>
+      update((state) => {
+        const favorites = new Set(favoriteIds);
+        return {
+          ...state,
+          tracks: state.tracks.map((track) => ({ ...track, favorite: favorites.has(track.id) }))
+        };
+      }),
+    addToQueue: (trackId: string) =>
+      update((state) => ({
+        ...state,
+        queue: state.queue.includes(trackId) ? state.queue : [...state.queue, trackId]
+      })),
+    playNext: (trackId: string) =>
+      update((state) => {
+        const currentIndex = state.queue.indexOf(state.currentTrackId);
+        const nextQueue = state.queue.filter((queuedId) => queuedId !== trackId);
+        const insertAt = currentIndex === -1 ? 1 : currentIndex + 1;
+        nextQueue.splice(insertAt, 0, trackId);
+
+        return { ...state, queue: nextQueue };
+      }),
+    removeFromQueue: (trackId: string) =>
+      update((state) => {
+        const nextQueue = state.queue.filter((queuedId) => queuedId !== trackId);
+        const currentTrackId = state.currentTrackId === trackId ? (nextQueue[0] ?? '') : state.currentTrackId;
+
+        return {
+          ...state,
+          queue: nextQueue,
+          currentTrackId,
+          isPlaying: state.currentTrackId === trackId ? false : state.isPlaying,
+          position: state.currentTrackId === trackId ? 0 : state.position
+        };
+      }),
+    recordRecentlyPlayed: (trackId: string) =>
+      update((state) => ({
+        ...state,
+        recentlyPlayed: [trackId, ...state.recentlyPlayed.filter((recentId) => recentId !== trackId)].slice(0, 100),
+        tracks: state.tracks.map((track) =>
+          track.id === trackId ? { ...track, playedAt: Date.now() } : track
+        )
+      })),
+    createPlaylist: (name: string) =>
+      update((state) => {
+        const now = Date.now();
+        const playlist: Playlist = {
+          id: `playlist-${now.toString(36)}`,
+          name: name.trim() || 'New Playlist',
+          trackIds: [],
+          createdAt: now,
+          updatedAt: now,
+          count: 0
+        };
+
+        return { ...state, playlists: [...state.playlists, playlist] };
+      }),
+    renamePlaylist: (playlistId: string, name: string) =>
+      update((state) => ({
+        ...state,
+        playlists: state.playlists.map((playlist) =>
+          playlist.id === playlistId
+            ? { ...playlist, name: name.trim() || playlist.name, updatedAt: Date.now() }
+            : playlist
+        )
+      })),
+    deletePlaylist: (playlistId: string) =>
+      update((state) => ({
+        ...state,
+        playlists: state.playlists.filter((playlist) => playlist.id !== playlistId)
+      })),
+    addToPlaylist: (playlistId: string, trackId: string) =>
+      update((state) => ({
+        ...state,
+        playlists: state.playlists.map((playlist) =>
+          playlist.id === playlistId
+            ? normalizePlaylist({
+                ...playlist,
+                trackIds: uniqueIds([...playlist.trackIds, trackId]),
+                updatedAt: Date.now()
+              })
+            : playlist
+        )
+      })),
+    removeFromPlaylist: (playlistId: string, trackId: string) =>
+      update((state) => ({
+        ...state,
+        playlists: state.playlists.map((playlist) =>
+          playlist.id === playlistId
+            ? normalizePlaylist({
+                ...playlist,
+                trackIds: playlist.trackIds.filter((playlistTrackId) => playlistTrackId !== trackId),
+                updatedAt: Date.now()
+              })
+            : playlist
+        )
+      })),
+    movePlaylistTrack: (playlistId: string, trackId: string, direction: 1 | -1) =>
+      update((state) => ({
+        ...state,
+        playlists: state.playlists.map((playlist) => {
+          if (playlist.id !== playlistId) return playlist;
+
+          const trackIds = [...playlist.trackIds];
+          const index = trackIds.indexOf(trackId);
+          const nextIndex = index + direction;
+
+          if (index === -1 || nextIndex < 0 || nextIndex >= trackIds.length) {
+            return playlist;
+          }
+
+          const [item] = trackIds.splice(index, 1);
+          trackIds.splice(nextIndex, 0, item);
+
+          return normalizePlaylist({ ...playlist, trackIds, updatedAt: Date.now() });
+        })
+      })),
     tick: () =>
       update((state) => {
         if (!state.isPlaying) return state;
@@ -126,16 +366,15 @@ function createPlayerStore() {
             return { ...state, position: 0 };
           }
 
-          const currentIndex = state.queue.indexOf(state.currentTrackId);
-          const nextIndex = currentIndex + 1;
+          const nextTrackId = findNextQueueTrack(state, 1);
 
-          if (nextIndex >= state.queue.length && state.repeat === 'off') {
+          if (!nextTrackId) {
             return { ...state, position: track.duration, isPlaying: false };
           }
 
           return {
             ...state,
-            currentTrackId: state.queue[nextIndex % state.queue.length] ?? state.currentTrackId,
+            currentTrackId: nextTrackId,
             position: 0
           };
         }
@@ -153,22 +392,48 @@ export const currentTrack = derived(player, ($player) =>
 
 export const genres = derived(player, ($player) => [
   'All',
-  ...Array.from(new Set($player.tracks.map((track) => track.genre))).sort()
+  ...Array.from(new Set($player.tracks.map((track) => track.genre).filter(Boolean))).sort()
 ]);
+
+function fuzzyMatch(value: string, query: string) {
+  if (!query) return true;
+
+  const source = value.toLowerCase();
+
+  if (source.includes(query)) {
+    return true;
+  }
+
+  let queryIndex = 0;
+
+  for (const character of source) {
+    if (character === query[queryIndex]) {
+      queryIndex += 1;
+    }
+
+    if (queryIndex === query.length) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export const filteredTracks = derived(player, ($player) => {
   const query = $player.search.trim().toLowerCase();
 
   return $player.tracks.filter((track) => {
     const matchesGenre = $player.selectedGenre === 'All' || track.genre === $player.selectedGenre;
-    const matchesQuery =
-      query.length === 0 ||
-      [track.title, track.artist, track.album, track.genre, track.fileType]
-        .join(' ')
-        .toLowerCase()
-        .includes(query);
+    const searchable = [
+      track.title,
+      track.artist,
+      track.album,
+      track.genre,
+      track.fileType,
+      track.fileName
+    ].join(' ');
 
-    return matchesGenre && matchesQuery;
+    return matchesGenre && fuzzyMatch(searchable, query);
   });
 });
 
@@ -181,6 +446,14 @@ export const libraryStats = derived(player, ($player) => {
     tracks: $player.tracks.length,
     albums,
     artists,
-    favorites
+    favorites,
+    playlists: $player.playlists.length,
+    recent: $player.recentlyPlayed.length
   };
 });
+
+export const recentlyPlayedTracks = derived(player, ($player) =>
+  $player.recentlyPlayed
+    .map((trackId) => $player.tracks.find((track) => track.id === trackId))
+    .filter(Boolean) as Track[]
+);
