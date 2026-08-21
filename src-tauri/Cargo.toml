@@ -1,0 +1,28 @@
+[package]
+name = "music-player"
+version = "0.1.0"
+description = "A local-first cross-platform music player."
+authors = ["Local Music Player Contributors"]
+edition = "2021"
+
+[lib]
+name = "music_player_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+symphonia = { version = "0.5", features = ["all"] }
+rodio = "0.19"
+cpal = "0.15"
+lofty = "0.21"
+rusqlite = { version = "0.32", features = ["bundled"] }
+notify = "6"
+thiserror = "1"

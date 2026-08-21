@@ -1,0 +1,16 @@
+{
+  "name": "Local Music Player",
+  "short_name": "Music",
+  "description": "A local-first music player built with SvelteKit and Tauri.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101314",
+  "theme_color": "#101314",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
