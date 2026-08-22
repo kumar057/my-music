@@ -1,15 +1,19 @@
 export type LibraryView =
   | 'home'
+  | 'search'
+  | 'discover'
   | 'songs'
   | 'artists'
   | 'albums'
   | 'playlists'
   | 'favorites'
-  | 'recent';
+  | 'recent'
+  | 'local'
+  | 'settings';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
-export type TrackSource = 'demo' | 'local';
+export type TrackSource = 'demo' | 'local' | 'spotify' | 'appleMusic' | 'youtube';
 
 export type CoverArt = {
   from: string;
@@ -30,12 +34,21 @@ export type Track = {
   bitrate: string;
   favorite: boolean;
   source: TrackSource;
+  provider?: TrackSource;
+  providerTrackId?: string;
+  providerBadge?: string;
   storageKey?: string;
   fingerprint?: string;
   path?: string;
   fileName?: string;
   size?: number;
   lastModified?: number;
+  previewUrl?: string;
+  externalUrl?: string;
+  embedUrl?: string;
+  playbackMode?: 'LOCAL' | 'PREVIEW' | 'APPLE_MUSIC' | 'SPOTIFY' | 'YOUTUBE';
+  playable?: boolean;
+  artworkUrl?: string;
   playbackSupported?: boolean;
   importWarning?: string;
   addedAt?: number;

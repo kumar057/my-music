@@ -170,6 +170,28 @@ function createPlayerStore() {
         selectedGenre: 'All',
         recentlyPlayed: []
       })),
+    clearLocalTracks: () =>
+      update((state) => {
+        const tracks = state.tracks.filter((track) => track.source !== 'local');
+        const trackIds = new Set(tracks.map((track) => track.id));
+
+        return {
+          ...state,
+          tracks,
+          playlists: state.playlists.map((playlist) =>
+            normalizePlaylist({
+              ...playlist,
+              trackIds: playlist.trackIds.filter((trackId) => trackIds.has(trackId))
+            })
+          ),
+          queue: state.queue.filter((trackId) => trackIds.has(trackId)),
+          currentTrackId: trackIds.has(state.currentTrackId) ? state.currentTrackId : (tracks[0]?.id ?? ''),
+          isPlaying: trackIds.has(state.currentTrackId) ? state.isPlaying : false,
+          position: trackIds.has(state.currentTrackId) ? state.position : 0,
+          activeView: tracks.length > 0 ? state.activeView : 'home',
+          recentlyPlayed: state.recentlyPlayed.filter((trackId) => trackIds.has(trackId))
+        };
+      }),
     resetToDemo: () =>
       update((state) => ({
         ...state,
@@ -244,6 +266,11 @@ function createPlayerStore() {
           tracks: state.tracks.map((track) => ({ ...track, favorite: favorites.has(track.id) }))
         };
       }),
+    clearFavorites: () =>
+      update((state) => ({
+        ...state,
+        tracks: state.tracks.map((track) => ({ ...track, favorite: false }))
+      })),
     addToQueue: (trackId: string) =>
       update((state) => ({
         ...state,
@@ -278,6 +305,12 @@ function createPlayerStore() {
         tracks: state.tracks.map((track) =>
           track.id === trackId ? { ...track, playedAt: Date.now() } : track
         )
+      })),
+    clearRecentlyPlayed: () =>
+      update((state) => ({
+        ...state,
+        recentlyPlayed: [],
+        tracks: state.tracks.map((track) => ({ ...track, playedAt: undefined }))
       })),
     createPlaylist: (name: string) =>
       update((state) => {
@@ -359,7 +392,7 @@ function createPlayerStore() {
 
         const track = state.tracks.find((item) => item.id === state.currentTrackId);
         if (!track) return state;
-        if (track.source === 'local') return state;
+        if (track.source === 'local' || track.previewUrl) return state;
 
         if (state.position + 1 >= track.duration) {
           if (state.repeat === 'one') {
@@ -430,7 +463,8 @@ export const filteredTracks = derived(player, ($player) => {
       track.album,
       track.genre,
       track.fileType,
-      track.fileName
+      track.fileName,
+      track.providerBadge
     ].join(' ');
 
     return matchesGenre && fuzzyMatch(searchable, query);
@@ -441,9 +475,13 @@ export const libraryStats = derived(player, ($player) => {
   const albums = new Set($player.tracks.map((track) => track.album)).size;
   const artists = new Set($player.tracks.map((track) => track.artist)).size;
   const favorites = $player.tracks.filter((track) => track.favorite).length;
+  const local = $player.tracks.filter((track) => track.source === 'local').length;
+  const online = $player.tracks.length - local;
 
   return {
     tracks: $player.tracks.length,
+    local,
+    online,
     albums,
     artists,
     favorites,

@@ -116,6 +116,7 @@ const SETTING_STORE = 'settings';
 const LAST_SCAN_KEY = 'last-scan';
 const FAVORITES_KEY = 'favorites';
 const RECENT_KEY = 'recently-played';
+const PROVIDER_TRACKS_KEY = 'provider-tracks';
 
 export const SUPPORTED_AUDIO_EXTENSIONS = [
   'mp3',
@@ -223,16 +224,21 @@ export async function scanDroppedItems(
 export async function restoreLibrarySnapshot(): Promise<LibrarySnapshot> {
   const database = await openDatabase();
   const records = await readAllRecords(database);
+  const providerTracks = await readSetting<Track[]>(database, PROVIDER_TRACKS_KEY, []);
   const playlists = await readAllPlaylists(database);
   const favoriteIds = await readSetting<string[]>(database, FAVORITES_KEY, []);
   const recentlyPlayed = await readSetting<string[]>(database, RECENT_KEY, []);
   const favoriteSet = new Set(favoriteIds);
-  const trackIds = new Set(records.map((record) => record.track.id));
+  const tracks = [
+    ...records.map((record) => record.track),
+    ...providerTracks.filter((track) => track.source !== 'local')
+  ];
+  const trackIds = new Set(tracks.map((track) => track.id));
 
   return {
-    tracks: records.map((record) => ({
-      ...record.track,
-      favorite: favoriteSet.has(record.track.id)
+    tracks: tracks.map((track) => ({
+      ...track,
+      favorite: favoriteSet.has(track.id)
     })),
     playlists: playlists.map((playlist) => ({
       ...playlist,
@@ -323,16 +329,21 @@ export async function saveRecentlyPlayed(recentlyPlayed: string[]) {
   await putSetting(database, RECENT_KEY, recentlyPlayed);
 }
 
+export async function saveProviderTracks(tracks: Track[]) {
+  const database = await openDatabase();
+  const providerTracks = tracks.filter((track) => track.source !== 'local');
+  await putSetting(database, PROVIDER_TRACKS_KEY, providerTracks);
+}
+
 export async function clearStoredTracks() {
   revokePlayableUrls();
 
   const database = await openDatabase();
 
   await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction([TRACK_STORE, PLAYLIST_STORE, SETTING_STORE], 'readwrite');
+    const transaction = database.transaction([TRACK_STORE, SETTING_STORE], 'readwrite');
     transaction.objectStore(TRACK_STORE).clear();
-    transaction.objectStore(PLAYLIST_STORE).clear();
-    transaction.objectStore(SETTING_STORE).clear();
+    transaction.objectStore(SETTING_STORE).delete(LAST_SCAN_KEY);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error('Could not clear library.'));
   });
