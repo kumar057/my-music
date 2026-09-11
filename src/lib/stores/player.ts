@@ -87,13 +87,15 @@ function createPlayerStore() {
     setTrackDuration: (trackId: string, duration: number) => update((state) => ({ ...state, tracks: state.tracks.map((track) => track.id === trackId ? { ...track, duration: Math.max(0, Math.round(duration)) } : track) })),
     setLibrary: (tracks: Track[], playlists: Playlist[] = [], recentlyPlayed: string[] = []) => update((state) => {
       const normalizedTracks = normalizeTracks(tracks);
-      const trackIds = normalizedTracks.map((track) => track.id);
+      const libraryTracks = normalizedTracks.length > 0 ? normalizedTracks : demoTracks;
+      const libraryPlaylists = playlists.length > 0 ? playlists.map(normalizePlaylist) : demoPlaylists.map(normalizePlaylist);
+      const trackIds = libraryTracks.map((track) => track.id);
       const currentTrackId = trackIds.includes(state.currentTrackId) ? state.currentTrackId : (trackIds[0] ?? '');
       if (!autoCatalogStarted && typeof window !== 'undefined') {
         autoCatalogStarted = true;
         queueMicrotask(() => void autoDiscoverMusic(appendDiscoveredTracks));
       }
-      return { ...state, tracks: normalizedTracks, playlists: playlists.map(normalizePlaylist), queue: state.queue.filter((trackId) => trackIds.includes(trackId)), currentTrackId, isPlaying: false, position: 0, activeView: normalizedTracks.length > 0 ? 'songs' : 'home', selectedGenre: 'All', recentlyPlayed: recentlyPlayed.filter((trackId) => trackIds.includes(trackId)) };
+      return { ...state, tracks: libraryTracks, playlists: libraryPlaylists, queue: state.queue.length > 0 ? state.queue.filter((trackId) => trackIds.includes(trackId)) : trackIds, currentTrackId, isPlaying: false, position: 0, activeView: libraryTracks.length > 0 ? 'songs' : 'home', selectedGenre: 'All', recentlyPlayed: recentlyPlayed.filter((trackId) => trackIds.includes(trackId)) };
     }),
     loadTracks: (tracks: Track[]) => update((state) => {
       const normalizedTracks = normalizeTracks(tracks);
