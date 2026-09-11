@@ -13,7 +13,7 @@ export type LibraryView =
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
-export type TrackSource = 'demo' | 'local' | 'spotify' | 'appleMusic' | 'youtube';
+export type TrackSource = 'demo' | 'local' | 'spotify' | 'appleMusic' | 'youtube' | 'indianMusic';
 
 export type CoverArt = {
   from: string;
