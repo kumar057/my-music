@@ -1,4 +1,4 @@
-export type MusicProviderId = 'local' | 'spotify' | 'appleMusic' | 'youtube';
+export type MusicProviderId = 'local' | 'spotify' | 'appleMusic' | 'youtube' | 'indianMusic';
 
 export type MusicResultKind = 'track' | 'artist' | 'album';
 
