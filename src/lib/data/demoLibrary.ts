@@ -1,123 +1,29 @@
 import type { Playlist, Track } from '$lib/types/music';
 
+const youtubeTrack = (input: Omit<Track, 'source' | 'playbackMode' | 'playable' | 'playbackSupported' | 'embedUrl' | 'providerBadge'> & { videoId: string }): Track => ({
+  ...input,
+  source: 'youtube',
+  provider: 'youtube',
+  providerTrackId: input.videoId,
+  providerBadge: 'Official YouTube',
+  embedUrl: `https://www.youtube.com/embed/${input.videoId}?enablejsapi=1&rel=0`,
+  playbackMode: 'YOUTUBE',
+  playable: true,
+  playbackSupported: true
+});
+
 export const demoTracks: Track[] = [
-  {
-    id: 'phase-shift',
-    title: 'Phase Shift',
-    artist: 'Mira Vale',
-    album: 'Late Night Circuits',
-    duration: 255,
-    genre: 'Electronic',
-    year: 2026,
-    fileType: 'FLAC',
-    bitrate: '24-bit',
-    favorite: true,
-    source: 'demo',
-    cover: { from: '#d7ff73', via: '#4ab5a4', to: '#1e4b5f' }
-  },
-  {
-    id: 'glass-harbor',
-    title: 'Glass Harbor',
-    artist: 'North Pier',
-    album: 'Tide Tables',
-    duration: 203,
-    genre: 'Indie',
-    year: 2025,
-    fileType: 'ALAC',
-    bitrate: '16-bit',
-    favorite: false,
-    source: 'demo',
-    cover: { from: '#8bd3ff', via: '#4578c8', to: '#28314f' }
-  },
-  {
-    id: 'paper-sun',
-    title: 'Paper Sun',
-    artist: 'June Arcade',
-    album: 'Room Tone',
-    duration: 188,
-    genre: 'Pop',
-    year: 2024,
-    fileType: 'AAC',
-    bitrate: '320 kbps',
-    favorite: true,
-    source: 'demo',
-    cover: { from: '#ffd166', via: '#ef7b45', to: '#3b2d4f' }
-  },
-  {
-    id: 'static-bloom',
-    title: 'Static Bloom',
-    artist: 'Vanta Fields',
-    album: 'Green Room Sessions',
-    duration: 309,
-    genre: 'Ambient',
-    year: 2026,
-    fileType: 'OPUS',
-    bitrate: '256 kbps',
-    favorite: false,
-    source: 'demo',
-    cover: { from: '#b8f2e6', via: '#5e6472', to: '#292f36' }
-  },
-  {
-    id: 'metro-blue',
-    title: 'Metro Blue',
-    artist: 'The After Hours',
-    album: 'Last Train Home',
-    duration: 231,
-    genre: 'Jazz',
-    year: 2023,
-    fileType: 'WAV',
-    bitrate: '1411 kbps',
-    favorite: false,
-    source: 'demo',
-    cover: { from: '#f7a072', via: '#7d4f50', to: '#2d232e' }
-  },
-  {
-    id: 'signal-house',
-    title: 'Signal House',
-    artist: 'Caldera Unit',
-    album: 'Signal House',
-    duration: 274,
-    genre: 'Rock',
-    year: 2025,
-    fileType: 'MP3',
-    bitrate: '320 kbps',
-    favorite: true,
-    source: 'demo',
-    cover: { from: '#fbf8cc', via: '#f07167', to: '#175676' }
-  },
-  {
-    id: 'soft-reset',
-    title: 'Soft Reset',
-    artist: 'Kairo Lane',
-    album: 'Temporary Memory',
-    duration: 217,
-    genre: 'R&B',
-    year: 2024,
-    fileType: 'FLAC',
-    bitrate: '24-bit',
-    favorite: false,
-    source: 'demo',
-    cover: { from: '#cdb4db', via: '#ffafcc', to: '#4f518c' }
-  },
-  {
-    id: 'small-hours',
-    title: 'Small Hours',
-    artist: 'Leela Park',
-    album: 'Kitchen Light',
-    duration: 196,
-    genre: 'Folk',
-    year: 2022,
-    fileType: 'VORBIS',
-    bitrate: '192 kbps',
-    favorite: false,
-    source: 'demo',
-    cover: { from: '#ccd5ae', via: '#e9edc9', to: '#6c584c' }
-  }
+  youtubeTrack({ id: 'butta-bomma', title: 'Butta Bomma', artist: 'Armaan Malik', album: 'Ala Vaikunthapurramuloo', duration: 197, genre: 'Telugu', year: 2020, fileType: 'YouTube', bitrate: 'Official video', favorite: true, videoId: '2mDCVzruYzQ', cover: { from: '#ff9f43', via: '#e85d04', to: '#6a040f' } }),
+  youtubeTrack({ id: 'kesariya', title: 'Kesariya', artist: 'Arijit Singh', album: 'Brahmāstra: Part One – Shiva', duration: 269, genre: 'Hindi', year: 2022, fileType: 'YouTube', bitrate: 'Official video', favorite: true, videoId: 'BddP6PYo2gs', cover: { from: '#ff7b54', via: '#d62828', to: '#3a0ca3' } }),
+  youtubeTrack({ id: 'apna-bana-le', title: 'Apna Bana Le', artist: 'Arijit Singh, Sachin-Jigar', album: 'Bhediya', duration: 264, genre: 'Hindi', year: 2022, fileType: 'YouTube', bitrate: 'Official video', favorite: false, videoId: 'ElZfdU54Cp8', cover: { from: '#ffd166', via: '#ef476f', to: '#5a189a' } }),
+  youtubeTrack({ id: 'arabic-kuthu', title: 'Arabic Kuthu', artist: 'Anirudh Ravichander, Jonita Gandhi', album: 'Beast', duration: 274, genre: 'Tamil', year: 2022, fileType: 'YouTube', bitrate: 'Official video', favorite: true, videoId: 'KUN5Uf9mObQ', cover: { from: '#00b4d8', via: '#0077b6', to: '#03045e' } }),
+  youtubeTrack({ id: 'mersal-arasan', title: 'Mersal Arasan', artist: 'A.R. Rahman', album: 'Mersal', duration: 246, genre: 'Tamil', year: 2017, fileType: 'YouTube', bitrate: 'Official video', favorite: false, videoId: 'Wxqu1eVJ4Vs', cover: { from: '#f4a261', via: '#e76f51', to: '#264653' } }),
+  youtubeTrack({ id: 'perfect', title: 'Perfect', artist: 'Ed Sheeran', album: '÷', duration: 263, genre: 'English', year: 2017, fileType: 'YouTube', bitrate: 'Official video', favorite: false, videoId: '2Vv-BfVoq4g', cover: { from: '#d8f3dc', via: '#74c69d', to: '#1b4332' } })
 ];
 
 export const demoPlaylists: Playlist[] = [
-  { id: 'favorites', name: 'Favorites', trackIds: ['phase-shift', 'paper-sun', 'signal-house'] },
-  { id: 'late-night', name: 'Late Night', trackIds: ['phase-shift', 'static-bloom'] },
-  { id: 'lossless', name: 'Lossless Finds', trackIds: ['phase-shift', 'soft-reset'] },
-  { id: 'recent', name: 'Recently Added', trackIds: ['glass-harbor', 'paper-sun'] }
+  { id: 'favorites', name: 'Favorites', trackIds: ['butta-bomma', 'kesariya', 'arabic-kuthu'] },
+  { id: 'indian-hits', name: 'Indian Hits', trackIds: ['butta-bomma', 'kesariya', 'apna-bana-le', 'arabic-kuthu', 'mersal-arasan'] },
+  { id: 'english', name: 'English', trackIds: ['perfect'] },
+  { id: 'recent', name: 'Recently Added', trackIds: ['butta-bomma', 'kesariya', 'apna-bana-le', 'arabic-kuthu', 'mersal-arasan', 'perfect'] }
 ];
