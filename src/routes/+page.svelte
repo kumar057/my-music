@@ -70,6 +70,7 @@
     disconnectSpotify,
     startSpotifyLogin
   } from '$lib/music/providers/spotify';
+  import { connectAppleMusic, disconnectAppleMusic } from '$lib/music/providers/appleMusic';
   import type {
     MusicAlbum,
     MusicArtist,
@@ -835,17 +836,33 @@
         return;
       }
 
+      if (status.id === 'appleMusic') {
+        const connected = await connectAppleMusic();
+        providerStatuses = getProviderStatuses();
+        pushToast(connected.message, 'success');
+        void loadDiscoveryShelves();
+        return;
+      }
+
       pushToast(`${status.name}: ${status.message}`, 'info');
     } catch (error: unknown) {
       pushToast(getErrorMessage(error), 'error');
+      providerStatuses = getProviderStatuses();
     }
   }
 
-  function disconnectProvider(status: ProviderStatus) {
+  async function disconnectProvider(status: ProviderStatus) {
     if (status.id === 'spotify') {
       disconnectSpotify();
       providerStatuses = getProviderStatuses();
       pushToast('Spotify disconnected.', 'info');
+      return;
+    }
+
+    if (status.id === 'appleMusic') {
+      await disconnectAppleMusic();
+      providerStatuses = getProviderStatuses();
+      pushToast('Apple Music disconnected.', 'info');
     }
   }
 
