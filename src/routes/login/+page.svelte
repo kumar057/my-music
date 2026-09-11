@@ -1,282 +1,106 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
+  import { signIn, signUp } from '$lib/auth';
 
   let email = '';
   let password = '';
   let showPassword = false;
   let remember = true;
   let loading = false;
+  let mode: 'signin' | 'signup' = 'signin';
+  let message = '';
   let error = '';
   let mouseX = 0;
   let mouseY = 0;
-  let particles = Array.from({ length: 18 }, (_, index) => ({
-    id: index,
-    left: (index * 17.7) % 100,
-    top: (index * 31.3) % 100,
-    delay: (index % 7) * -1.4,
-    duration: 7 + (index % 5)
-  }));
 
   onMount(() => {
-    const saved = window.localStorage.getItem('myMusicLoginEmail');
-    if (saved) email = saved;
+    email = window.localStorage.getItem('myMusicLoginEmail') ?? '';
   });
 
-  function handlePointerMove(event: PointerEvent) {
-    const x = event.clientX / window.innerWidth - 0.5;
-    const y = event.clientY / window.innerHeight - 0.5;
-    mouseX = x * 10;
-    mouseY = y * -10;
+  function move(event: PointerEvent) {
+    mouseX = (event.clientX / window.innerWidth - 0.5) * 12;
+    mouseY = (event.clientY / window.innerHeight - 0.5) * -12;
   }
 
-  async function handleSubmit() {
+  async function submit() {
     error = '';
-    if (!email.trim() || !password.trim()) {
-      error = 'Enter your email and password to continue.';
+    message = '';
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
+      error = 'Enter your email and password.';
+      return;
+    }
+    if (password.length < 6) {
+      error = 'Password must be at least 6 characters.';
       return;
     }
 
     loading = true;
-    await new Promise((resolve) => window.setTimeout(resolve, 650));
-
-    window.localStorage.setItem('myMusicAuth', 'true');
-    if (remember) window.localStorage.setItem('myMusicLoginEmail', email.trim());
-    else window.localStorage.removeItem('myMusicLoginEmail');
-
-    await goto('/');
+    try {
+      if (mode === 'signin') {
+        await signIn(cleanEmail, password);
+        if (remember) window.localStorage.setItem('myMusicLoginEmail', cleanEmail);
+        else window.localStorage.removeItem('myMusicLoginEmail');
+        window.localStorage.setItem('myMusicAuth', 'true');
+        await goto('/');
+      } else {
+        const result = await signUp(cleanEmail, password);
+        if (result.access_token) {
+          window.localStorage.setItem('myMusicAuth', 'true');
+          await goto('/');
+        } else {
+          message = 'Account created. Check your email to confirm, then sign in.';
+          mode = 'signin';
+        }
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Authentication failed.';
+    } finally {
+      loading = false;
+    }
   }
 </script>
 
 <svelte:head>
-  <title>Sign in — My Music</title>
-  <meta name="description" content="Sign in to your My Music experience." />
+  <title>{mode === 'signin' ? 'Sign in' : 'Create account'} — My Music</title>
 </svelte:head>
 
-<div class="login-scene" onpointermove={handlePointerMove}>
-  <div class="aurora aurora-one"></div>
-  <div class="aurora aurora-two"></div>
-  <div class="grid-plane"></div>
+<div class="scene" onpointermove={move}>
+  <div class="stars"></div><div class="aurora a"></div><div class="aurora b"></div>
+  <div class="ring r1" style={`translate:${mouseX * .7}px ${mouseY * .7}px`}></div>
+  <div class="ring r2" style={`translate:${mouseX * -.4}px ${mouseY * -.4}px`}></div>
+  <div class="grid"></div>
 
-  {#each particles as particle}
-    <span
-      class="particle"
-      style={`left:${particle.left}%;top:${particle.top}%;animation-delay:${particle.delay}s;animation-duration:${particle.duration}s`}
-    ></span>
-  {/each}
-
-  <div
-    class="holo-orbit orbit-one"
-    style={`transform: translate3d(${mouseX * 0.7}px, ${mouseY * 0.7}px, 0) rotateX(68deg) rotateZ(-18deg)`}
-  ></div>
-  <div
-    class="holo-orbit orbit-two"
-    style={`transform: translate3d(${mouseX * -0.35}px, ${mouseY * -0.35}px, 0) rotateY(72deg) rotateZ(28deg)`}
-  ></div>
-
-  <main class="content" style={`--mx:${mouseX}px;--my:${mouseY}px`}>
-    <section class="brand-block">
-      <div class="logo-cube" aria-hidden="true">
-        <span></span><span></span><span></span><span></span>
-      </div>
-      <p class="eyebrow">MY MUSIC · IMMERSIVE AUDIO</p>
-      <h1>Enter your<br /><em>sound universe.</em></h1>
-      <p class="tagline">Your library. Your playlists. Your world of music.</p>
+  <main class="wrap" style={`--mx:${mouseX}px;--my:${mouseY}px`}>
+    <section class="hero">
+      <div class="cube" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <small>MY MUSIC · IMMERSIVE AUDIO</small>
+      <h1>Your sound.<br><em>Your universe.</em></h1>
+      <p>One beautiful home for your local library, playlists and music discovery.</p>
     </section>
 
-    <section class="login-card" aria-label="Sign in">
-      <div class="card-glow"></div>
-      <div class="card-topline"><span></span><span></span><span></span></div>
-
-      <div class="card-heading">
-        <div>
-          <p class="micro">WELCOME BACK</p>
-          <h2>Sign in</h2>
-        </div>
-        <div class="live-dot"><i></i> LIVE</div>
-      </div>
-
-      <form onsubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
-        <label>
-          <span>Email</span>
-          <div class="input-shell">
-            <span class="input-icon">@</span>
-            <input bind:value={email} type="email" autocomplete="email" placeholder="you@example.com" />
-          </div>
-        </label>
-
-        <label>
-          <span>Password</span>
-          <div class="input-shell">
-            <span class="input-icon">••</span>
-            <input bind:value={password} type={showPassword ? 'text' : 'password'} autocomplete="current-password" placeholder="Enter your password" />
-            <button class="eye" type="button" onclick={() => (showPassword = !showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
-              {showPassword ? 'HIDE' : 'SHOW'}
-            </button>
-          </div>
-        </label>
-
-        <div class="form-row">
-          <label class="remember">
-            <input type="checkbox" bind:checked={remember} />
-            <span>Remember me</span>
-          </label>
-          <button type="button" class="forgot" onclick={() => (error = 'Password recovery will be available when a backend authentication provider is connected.')}>Forgot password?</button>
-        </div>
-
-        {#if error}
-          <p class="error" role="alert">{error}</p>
+    <section class="card">
+      <div class="top"><span></span><span></span><span></span><b>● SECURE</b></div>
+      <small>{mode === 'signin' ? 'WELCOME BACK' : 'NEW LISTENER'}</small>
+      <h2>{mode === 'signin' ? 'Sign in' : 'Create account'}</h2>
+      <form onsubmit={(e) => { e.preventDefault(); void submit(); }}>
+        <label>Email<input bind:value={email} type="email" autocomplete="email" placeholder="you@example.com" /></label>
+        <label>Password<div class="password"><input bind:value={password} type={showPassword ? 'text' : 'password'} autocomplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder="Minimum 6 characters" /><button type="button" onclick={() => showPassword = !showPassword}>{showPassword ? 'HIDE' : 'SHOW'}</button></div></label>
+        {#if mode === 'signin'}
+          <label class="remember"><input type="checkbox" bind:checked={remember} /> Remember me</label>
         {/if}
-
-        <button class="submit" type="submit" disabled={loading}>
-          <span>{loading ? 'ENTERING…' : 'ENTER MY MUSIC'}</span>
-          <b>↗</b>
-        </button>
+        {#if error}<p class="error">{error}</p>{/if}
+        {#if message}<p class="message">{message}</p>{/if}
+        <button class="submit" disabled={loading}>{loading ? 'PLEASE WAIT…' : mode === 'signin' ? 'ENTER MY MUSIC ↗' : 'CREATE MY ACCOUNT ↗'}</button>
       </form>
-
-      <div class="divider"><span>OR</span></div>
-
-      <button class="guest" type="button" onclick={() => goto('/')}>Continue without account <span>→</span></button>
-      <p class="legal">By continuing, you agree to use My Music responsibly.</p>
+      <div class="switch">{mode === 'signin' ? "Don't have an account?" : 'Already have an account?'} <button type="button" onclick={() => { mode = mode === 'signin' ? 'signup' : 'signin'; error = ''; message = ''; }}>{mode === 'signin' ? 'Create one' : 'Sign in'}</button></div>
+      <button class="guest" type="button" onclick={() => goto('/')}>Continue without account →</button>
+      <p class="legal">Authentication is securely handled by your configured Supabase project.</p>
     </section>
   </main>
-
-  <div class="corner-label top-left">MM / 01</div>
-  <div class="corner-label bottom-right">AUDIO SYSTEM · ONLINE</div>
 </div>
 
 <style>
-  :global(html, body) {
-    margin: 0;
-    min-height: 100%;
-    background: #05060b;
-    color: #f6f7fb;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-
-  :global(body) { overflow-x: hidden; }
-
-  .login-scene {
-    min-height: 100vh;
-    position: relative;
-    overflow: hidden;
-    display: grid;
-    place-items: center;
-    isolation: isolate;
-    background:
-      radial-gradient(circle at 50% 45%, rgba(90, 255, 204, .09), transparent 30%),
-      radial-gradient(circle at 20% 20%, rgba(120, 84, 255, .13), transparent 28%),
-      #05060b;
-  }
-
-  .login-scene::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
-    background-size: 64px 64px;
-    mask-image: radial-gradient(circle, black 10%, transparent 75%);
-    pointer-events: none;
-  }
-
-  .aurora, .grid-plane, .holo-orbit, .particle { pointer-events: none; position: absolute; }
-
-  .aurora { width: 44vw; height: 44vw; border-radius: 50%; filter: blur(70px); opacity: .3; animation: breathe 8s ease-in-out infinite; }
-  .aurora-one { background: #35f2bc; left: -15vw; top: 5vh; }
-  .aurora-two { background: #704cff; right: -15vw; bottom: -10vh; animation-delay: -3s; }
-
-  .grid-plane {
-    width: 140vw;
-    height: 70vh;
-    bottom: -43vh;
-    left: -20vw;
-    opacity: .18;
-    background-image: linear-gradient(rgba(103,255,212,.35) 1px, transparent 1px), linear-gradient(90deg, rgba(103,255,212,.35) 1px, transparent 1px);
-    background-size: 70px 70px;
-    transform: perspective(480px) rotateX(62deg) translateZ(-30px);
-    transform-origin: center top;
-    animation: gridMove 9s linear infinite;
-  }
-
-  .holo-orbit { width: 310px; height: 310px; border: 1px solid rgba(105,255,218,.28); border-radius: 50%; transform-style: preserve-3d; box-shadow: 0 0 35px rgba(77,255,207,.12), inset 0 0 35px rgba(77,255,207,.05); transition: transform .25s ease-out; }
-  .orbit-one { left: 9vw; top: 12vh; animation: orbit 16s linear infinite; }
-  .orbit-two { right: 8vw; bottom: 7vh; width: 240px; height: 240px; border-color: rgba(152,123,255,.28); animation: orbitReverse 13s linear infinite; }
-
-  .particle { width: 3px; height: 3px; border-radius: 50%; background: #baffec; box-shadow: 0 0 12px #6fffd1; opacity: .5; animation: floatParticle 8s ease-in-out infinite; }
-
-  .content { width: min(1080px, 92vw); display: grid; grid-template-columns: 1fr 430px; gap: clamp(50px, 8vw, 120px); align-items: center; position: relative; z-index: 2; perspective: 1400px; transform: translate3d(var(--mx), var(--my), 0); transition: transform .25s ease-out; }
-
-  .brand-block { transform: translateZ(50px); }
-  .eyebrow, .micro, .corner-label { font-size: 10px; letter-spacing: .22em; font-weight: 700; color: rgba(205,255,240,.58); }
-  .eyebrow { margin: 0 0 24px; }
-  h1 { font-size: clamp(48px, 6.4vw, 82px); line-height: .9; letter-spacing: -.065em; margin: 0; font-weight: 700; text-shadow: 0 15px 60px rgba(80,255,205,.14); }
-  h1 em { color: #d7ff73; font-style: normal; text-shadow: 0 0 35px rgba(215,255,115,.18); }
-  .tagline { max-width: 390px; margin-top: 28px; color: rgba(255,255,255,.52); line-height: 1.7; }
-
-  .logo-cube { width: 58px; height: 58px; margin-bottom: 34px; position: relative; transform-style: preserve-3d; transform: rotateX(-18deg) rotateY(28deg); animation: cubeFloat 5s ease-in-out infinite; }
-  .logo-cube span { position: absolute; inset: 8px; border: 1px solid rgba(215,255,115,.7); background: rgba(215,255,115,.06); box-shadow: inset 0 0 18px rgba(215,255,115,.08), 0 0 25px rgba(215,255,115,.1); }
-  .logo-cube span:nth-child(1) { transform: translateZ(18px); }
-  .logo-cube span:nth-child(2) { transform: rotateY(90deg) translateZ(18px); }
-  .logo-cube span:nth-child(3) { transform: rotateX(90deg) translateZ(18px); }
-  .logo-cube span:nth-child(4) { transform: translateZ(-18px); }
-
-  .login-card { position: relative; overflow: hidden; padding: 34px; border: 1px solid rgba(255,255,255,.13); border-radius: 28px; background: linear-gradient(145deg, rgba(25,29,38,.78), rgba(8,10,16,.68)); backdrop-filter: blur(26px) saturate(135%); box-shadow: 0 40px 100px rgba(0,0,0,.5), inset 0 1px rgba(255,255,255,.08), 0 0 70px rgba(78,255,211,.05); transform: rotateY(calc(var(--mx) * -.15)) rotateX(calc(var(--my) * .15)) translateZ(80px); transform-style: preserve-3d; }
-  .card-glow { position: absolute; width: 190px; height: 190px; border-radius: 50%; background: #62ffd4; opacity: .07; filter: blur(55px); right: -70px; top: -80px; }
-  .card-topline { display: flex; gap: 6px; margin-bottom: 28px; }
-  .card-topline span { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.25); }
-  .card-topline span:first-child { background: #d7ff73; box-shadow: 0 0 10px #d7ff73; }
-  .card-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
-  .micro { margin: 0 0 7px; font-size: 8px; }
-  h2 { margin: 0; font-size: 31px; letter-spacing: -.04em; }
-  .live-dot { font-size: 8px; letter-spacing: .16em; color: rgba(255,255,255,.45); }
-  .live-dot i { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: #d7ff73; box-shadow: 0 0 10px #d7ff73; animation: pulse 1.7s infinite; }
-  form { display: grid; gap: 18px; }
-  label > span { display: block; font-size: 11px; color: rgba(255,255,255,.55); margin-bottom: 8px; }
-  .input-shell { height: 52px; display: flex; align-items: center; gap: 10px; border: 1px solid rgba(255,255,255,.1); border-radius: 13px; background: rgba(255,255,255,.035); transition: .2s ease; }
-  .input-shell:focus-within { border-color: rgba(215,255,115,.5); box-shadow: 0 0 0 4px rgba(215,255,115,.05), 0 0 25px rgba(215,255,115,.07); transform: translateY(-1px); }
-  input[type='email'], input[type='password'], input[type='text'] { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: white; font: inherit; font-size: 13px; }
-  input::placeholder { color: rgba(255,255,255,.24); }
-  .input-icon { width: 28px; text-align: center; color: #d7ff73; font-size: 11px; opacity: .8; }
-  .eye, .forgot, .guest { border: 0; background: none; color: rgba(255,255,255,.45); cursor: pointer; font: inherit; }
-  .eye { font-size: 8px; letter-spacing: .1em; padding: 10px; }
-  .form-row { display: flex; justify-content: space-between; align-items: center; margin-top: -2px; }
-  .remember { display: flex; gap: 8px; align-items: center; cursor: pointer; }
-  .remember span { margin: 0; font-size: 10px; }
-  .remember input { accent-color: #d7ff73; }
-  .forgot { font-size: 10px; color: #d7ff73; }
-  .error { margin: -2px 0 0; font-size: 11px; color: #ffafcc; line-height: 1.5; }
-  .submit { height: 54px; border: 1px solid rgba(215,255,115,.35); border-radius: 14px; background: linear-gradient(100deg, #d7ff73, #8fffcf); color: #07100d; font-weight: 800; letter-spacing: .1em; font-size: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0 17px; box-shadow: 0 14px 35px rgba(130,255,194,.15); transition: transform .2s ease, box-shadow .2s ease; }
-  .submit:hover:not(:disabled) { transform: translateY(-2px) translateZ(10px); box-shadow: 0 20px 45px rgba(130,255,194,.24); }
-  .submit:disabled { opacity: .65; cursor: wait; }
-  .submit b { font-size: 18px; }
-  .divider { display: flex; align-items: center; gap: 12px; color: rgba(255,255,255,.2); font-size: 8px; letter-spacing: .2em; margin: 24px 0 17px; }
-  .divider::before, .divider::after { content: ''; height: 1px; flex: 1; background: rgba(255,255,255,.08); }
-  .guest { width: 100%; color: rgba(255,255,255,.7); font-size: 11px; display: flex; justify-content: space-between; padding: 4px 2px; }
-  .guest:hover, .forgot:hover, .eye:hover { color: #d7ff73; }
-  .legal { text-align: center; margin: 18px 0 0; font-size: 8px; color: rgba(255,255,255,.24); }
-  .corner-label { position: fixed; z-index: 4; opacity: .5; font-size: 8px; }
-  .top-left { left: 25px; top: 24px; }
-  .bottom-right { right: 25px; bottom: 24px; }
-
-  @keyframes breathe { 0%,100% { transform: scale(.9); opacity: .22; } 50% { transform: scale(1.1); opacity: .34; } }
-  @keyframes gridMove { from { background-position: 0 0; } to { background-position: 0 70px; } }
-  @keyframes orbit { to { rotate: 360deg; } }
-  @keyframes orbitReverse { to { rotate: -360deg; } }
-  @keyframes floatParticle { 0%,100% { translate: 0 0; opacity: .2; } 50% { translate: 0 -25px; opacity: .7; } }
-  @keyframes cubeFloat { 0%,100% { translate: 0 0; } 50% { translate: 0 -9px; } }
-  @keyframes pulse { 50% { opacity: .3; transform: scale(.7); } }
-
-  @media (max-width: 820px) {
-    .content { grid-template-columns: 1fr; gap: 34px; padding: 70px 0 50px; }
-    .brand-block { text-align: center; }
-    .logo-cube { margin-inline: auto; }
-    .tagline { margin-inline: auto; }
-    .login-card { width: min(430px, calc(100vw - 40px)); box-sizing: border-box; margin-inline: auto; }
-    .holo-orbit { opacity: .35; }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .aurora, .grid-plane, .holo-orbit, .particle, .logo-cube, .live-dot i { animation: none !important; }
-    .content, .login-card, .holo-orbit { transition: none !important; transform: none !important; }
-  }
+  :global(html,body){margin:0;min-height:100%;background:#04050a;color:#fff;font-family:Inter,ui-sans-serif,system-ui,sans-serif}.scene{min-height:100vh;overflow:hidden;position:relative;display:grid;place-items:center;background:radial-gradient(circle at 50% 45%,#123c3540,transparent 35%),#04050a;isolation:isolate}.stars{position:absolute;inset:0;background-image:radial-gradient(#d7ff73 1px,transparent 1px),radial-gradient(#8b7cff 1px,transparent 1px);background-size:90px 90px,140px 140px;opacity:.16;animation:stars 20s linear infinite}.aurora{position:absolute;width:45vw;height:45vw;border-radius:50%;filter:blur(80px);opacity:.2;animation:breathe 8s ease-in-out infinite}.a{background:#35f2bc;left:-15vw;top:0}.b{background:#704cff;right:-15vw;bottom:-10vh;animation-delay:-4s}.grid{position:absolute;width:140vw;height:70vh;bottom:-43vh;background-image:linear-gradient(#66ffd922 1px,transparent 1px),linear-gradient(90deg,#66ffd922 1px,transparent 1px);background-size:65px 65px;transform:perspective(500px) rotateX(62deg);animation:grid 9s linear infinite}.ring{position:absolute;width:330px;height:330px;border:1px solid #7affda33;border-radius:50%;transform-style:preserve-3d;box-shadow:0 0 45px #4fffd41c;animation:orbit 15s linear infinite}.r1{left:7vw;top:12vh;transform:rotateX(68deg) rotateZ(-18deg)}.r2{right:8vw;bottom:7vh;width:230px;height:230px;border-color:#9d82ff44;animation-direction:reverse}.wrap{width:min(1080px,92vw);display:grid;grid-template-columns:1fr 420px;gap:clamp(45px,8vw,110px);align-items:center;position:relative;z-index:2;perspective:1400px;transform:translate3d(var(--mx),var(--my),0);transition:transform .25s}.hero{transform:translateZ(60px)}small{font-size:9px;letter-spacing:.22em;color:#caffed88;font-weight:700}.cube{width:60px;height:60px;position:relative;transform-style:preserve-3d;transform:rotateX(-20deg) rotateY(30deg);animation:cube 5s ease-in-out infinite;margin-bottom:30px}.cube i{position:absolute;inset:7px;border:1px solid #d7ff73aa;background:#d7ff7310;box-shadow:0 0 22px #d7ff7320}.cube i:nth-child(1){transform:translateZ(20px)}.cube i:nth-child(2){transform:rotateY(90deg) translateZ(20px)}.cube i:nth-child(3){transform:rotateX(90deg) translateZ(20px)}.cube i:nth-child(4){transform:translateZ(-20px)}h1{font-size:clamp(52px,6vw,80px);line-height:.9;letter-spacing:-.065em;margin:20px 0;font-weight:750}h1 em{font-style:normal;color:#d7ff73;text-shadow:0 0 35px #d7ff7330}.hero p{max-width:400px;color:#ffffff80;line-height:1.7}.card{padding:34px;border-radius:28px;border:1px solid #ffffff1c;background:linear-gradient(145deg,#191d26cc,#080a10b5);backdrop-filter:blur(28px) saturate(140%);box-shadow:0 40px 100px #0009,0 0 70px #4fffd40d,inset 0 1px #ffffff12;transform:rotateY(calc(var(--mx)*-.12)) rotateX(calc(var(--my)*.12)) translateZ(70px);transition:transform .25s;position:relative}.top{display:flex;gap:6px;margin-bottom:30px}.top span{width:5px;height:5px;border-radius:50%;background:#ffffff35}.top span:first-child{background:#d7ff73;box-shadow:0 0 10px #d7ff73}.top b{margin-left:auto;font-size:8px;letter-spacing:.12em;color:#d7ff7380}h2{font-size:32px;letter-spacing:-.04em;margin:7px 0 27px}form{display:grid;gap:17px}label{font-size:11px;color:#ffffff80}input{box-sizing:border-box;width:100%;height:52px;margin-top:8px;padding:0 15px;border-radius:13px;border:1px solid #ffffff12;outline:none;background:#ffffff08;color:#fff;font:inherit}.password{position:relative}.password input{padding-right:60px}.password button{position:absolute;right:8px;top:15px;border:0;background:none;color:#d7ff73;font-size:8px;letter-spacing:.1em;cursor:pointer}.remember{display:flex;align-items:center;gap:8px}.remember input{width:auto;height:auto;margin:0;accent-color:#d7ff73}.submit{height:54px;border:0;border-radius:14px;background:#d7ff73;color:#07100b;font-weight:800;letter-spacing:.04em;cursor:pointer;box-shadow:0 12px 35px #d7ff7322;transition:.2s}.submit:hover{transform:translateY(-2px);box-shadow:0 16px 45px #d7ff7340}.submit:disabled{opacity:.6;cursor:wait}.error,.message{font-size:11px;margin:0;padding:10px 12px;border-radius:10px}.error{color:#ffabc8;background:#ff5f8710;border:1px solid #ff5f8730}.message{color:#caffed;background:#5dffc410;border:1px solid #5dffc430}.switch{text-align:center;margin:23px 0 14px;font-size:10px;color:#ffffff55}.switch button,.guest{border:0;background:none;color:#d7ff73;cursor:pointer;font:inherit}.guest{display:block;margin:auto;font-size:11px}.legal{text-align:center;color:#ffffff2e;font-size:8px;margin:22px 0 0}.scene:has(input:focus) .card{box-shadow:0 40px 100px #0009,0 0 80px #d7ff7310,inset 0 1px #ffffff12}@keyframes breathe{50%{transform:scale(1.12);opacity:.28}}@keyframes orbit{to{rotate:360deg}}@keyframes grid{to{background-position:0 65px}}@keyframes stars{to{background-position:180px 90px,-140px 140px}}@keyframes cube{50%{transform:rotateX(18deg) rotateY(210deg) translateY(-8px)}}@media(max-width:800px){.wrap{grid-template-columns:1fr;max-width:500px}.hero{text-align:center}.hero p{margin-left:auto;margin-right:auto}.cube{margin-left:auto;margin-right:auto}.hero h1{font-size:52px}.card{transform:none}.ring{opacity:.35}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition:none!important}}
 </style>
