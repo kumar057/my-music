@@ -5,7 +5,8 @@ const PROVIDER_PALETTES: Record<MusicProviderId, [string, string, string]> = {
   local: ['#d7ff73', '#4ab5a4', '#1e4b5f'],
   spotify: ['#1db954', '#157347', '#082f21'],
   appleMusic: ['#ff375f', '#a855f7', '#1f1538'],
-  youtube: ['#ff4d4d', '#c1121f', '#250902']
+  youtube: ['#ff4d4d', '#c1121f', '#250902'],
+  indianMusic: ['#ff9f43', '#e85d04', '#6a040f']
 };
 
 export function toPlayerTrack(result: MusicTrack): Track {
