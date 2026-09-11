@@ -8,7 +8,7 @@ type AppleAlbumAttributes = { name?: string; artistName?: string; trackCount?: n
 type AppleSearchResponse = { results?: { songs?: { data?: Array<{ id: string; attributes?: AppleSongAttributes }> }; artists?: { data?: Array<{ id: string; attributes?: AppleArtistAttributes }> }; albums?: { data?: Array<{ id: string; attributes?: AppleAlbumAttributes }> } } };
 type AppleTokenResponse = { developerToken?: string; token?: string };
 type MusicKitInstance = { authorize: () => Promise<string>; unauthorize: () => Promise<void> };
-type MusicKitGlobal = { configure: (config: { developerToken: string; storefrontId: string; app: { name: string; build: string } }) => Promise<MusicKitInstance> | MusicKitInstance; getInstance?: () => MusicKitInstance };
+type MusicKitGlobal = { configure: (config: { developerToken: string; storefrontId: string; app: { name: string; build: string } }) => Promise<MusicKitInstance> | MusicKitInstance };
 declare global { interface Window { MusicKit?: MusicKitGlobal } }
 
 const TOKEN_ENDPOINT = env.PUBLIC_APPLE_MUSIC_TOKEN_ENDPOINT || '';
@@ -29,7 +29,7 @@ export async function connectAppleMusic() {
   const developerToken = await getDeveloperToken();
   await loadMusicKitScript();
   if (!window.MusicKit) throw new Error('Apple Music MusicKit could not be loaded.');
-  const instance = window.MusicKit.getInstance ? window.MusicKit.getInstance() : await window.MusicKit.configure({ developerToken, storefrontId: STOREFRONT, app: { name: 'My Music', build: '1.0.0' } });
+  const instance = await window.MusicKit.configure({ developerToken, storefrontId: STOREFRONT, app: { name: 'My Music', build: '1.0.0' } });
   const userToken = await instance.authorize();
   if (!userToken) throw new Error('Apple Music authorization did not return a user token.');
   window.localStorage.setItem(USER_TOKEN_KEY, userToken);
@@ -38,7 +38,13 @@ export async function connectAppleMusic() {
 
 export async function disconnectAppleMusic() {
   if (typeof window === 'undefined') return;
-  try { await window.MusicKit?.getInstance?.().unauthorize(); } catch { /* local sign-out still succeeds */ }
+  try {
+    if (window.MusicKit) {
+      const developerToken = await getDeveloperToken();
+      const instance = await window.MusicKit.configure({ developerToken, storefrontId: STOREFRONT, app: { name: 'My Music', build: '1.0.0' } });
+      await instance.unauthorize();
+    }
+  } catch { /* local sign-out still succeeds */ }
   window.localStorage.removeItem(USER_TOKEN_KEY);
 }
 
