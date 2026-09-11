@@ -6,7 +6,7 @@ The app does not scrape websites, bypass DRM, download copyrighted music, or ext
 
 ## Features
 
-- Local music import with files, folders where the browser supports it, and drag/drop.
+- Local music import with files, folders where the browser supports them, and drag/drop.
 - IndexedDB storage for local metadata, local file handles/files, playlists, favorites, recently played, and provider track references.
 - Unified search architecture for Spotify, Apple Music, YouTube, and local metadata.
 - Official provider handling:
@@ -23,7 +23,7 @@ The app does not scrape websites, bypass DRM, download copyrighted music, or ext
 Music provider logic lives in `src/lib/music`:
 
 - `types.ts` defines normalized tracks, artists, albums, provider status, and provider interfaces.
-- `providers/spotify.ts` uses official Spotify OAuth PKCE and Web API search.
+- `providers/spotify.ts` uses official Spotify OAuth PKCE and Web API search, including refresh-token handling when the access token expires.
 - `providers/appleMusic.ts` uses the Apple Music catalog API through a server-side token endpoint.
 - `providers/youtube.ts` uses the official YouTube Data API and YouTube embed URLs.
 - `search.ts` runs providers with `Promise.allSettled`, caches search results, supports cancellation, and isolates provider failures.
@@ -90,7 +90,7 @@ Never expose Apple private keys, Spotify client secrets, OAuth secrets, server c
 3. Set `PUBLIC_SPOTIFY_CLIENT_ID`.
 4. Optionally set `PUBLIC_SPOTIFY_REDIRECT_URI`; otherwise the app uses the current page URL.
 
-Spotify search requires the user to connect with OAuth PKCE. Full Spotify playback still depends on Spotify account, subscription, device, and Spotify playback rules. The app only plays official preview URLs when Spotify exposes them.
+Spotify search requires the user to connect with OAuth PKCE. The app refreshes an expired access token when Spotify provides a refresh token. Full Spotify playback still depends on Spotify account, subscription, device, and Spotify playback rules. The app only plays official preview URLs when Spotify exposes them.
 
 ## Apple Music Setup
 
@@ -109,6 +109,7 @@ Apple Music full playback may require MusicKit and a valid Apple Music subscript
 1. Create or use a Google Cloud project.
 2. Enable the YouTube Data API.
 3. Set `PUBLIC_YOUTUBE_API_KEY`.
+4. Restrict the key to the production domain and only the APIs this app needs.
 
 The app uses YouTube metadata search and official embed/open links. It does not download or extract YouTube audio.
 
@@ -124,7 +125,15 @@ Vercel settings:
 
 `vercel.json` includes the static output directory and SPA fallback rewrite.
 
+For manual deployment, connect the GitHub repository to a Vercel project and set the production environment variables there. The repository also contains `.github/workflows/vercel-deploy.yml` for optional GitHub Actions deployment. That workflow requires a `VERCEL_TOKEN` repository secret and a Vercel project/account that the token can access.
+
 Add only public environment variables to Vercel's frontend environment. Keep Apple signing keys in a separate secure token service or serverless endpoint.
+
+## GitHub Actions
+
+`.github/workflows/ci.yml` runs `npm ci`, `npm run check`, and `npm run build` for pushes to `main` and pull requests.
+
+`.github/workflows/vercel-deploy.yml` can deploy the production build from `main` after a `VERCEL_TOKEN` secret is configured. If the Vercel account requires an organization/project scope, configure that project in Vercel before enabling the workflow.
 
 ## Provider Limitations
 
@@ -143,7 +152,9 @@ Add only public environment variables to Vercel's frontend environment. Keep App
 - No copyrighted music extraction.
 - No private keys or secrets in GitHub.
 - No passwords stored by the app.
-- Provider authentication uses official mechanisms where implemented.
+- Spotify uses PKCE, state validation, and access-token refresh handling.
+- YouTube API keys should be restricted by API and production domain.
+- Apple Music signing keys remain outside the frontend and should only be used by a secure token service.
 
 ## Verification
 
