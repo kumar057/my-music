@@ -35,8 +35,10 @@ export function getStatus(): ProviderStatus {
   return {
     id: 'indianMusic',
     name: 'Indian Music',
-    state: 'configured',
-    message: 'Indian-language music discovery enabled without a private API key'
+    state: 'connected',
+    message: 'Indian-language music discovery connected and ready',
+    connectLabel: 'Connected',
+    disconnectLabel: 'Disconnect'
   };
 }
 
