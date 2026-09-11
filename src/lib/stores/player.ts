@@ -86,16 +86,7 @@ async function autoDiscoverMusic(appendTracks: (tracks: Track[]) => void) {
   );
 
   const tracks = discovered.map(toPlayerTrack);
-  if (tracks.length === 0) return;
-
-  appendTracks(tracks);
-
-  try {
-    const stateTracks = tracks;
-    await saveProviderTracks(stateTracks);
-  } catch {
-    // The in-memory library still works when browser persistence is unavailable.
-  }
+  if (tracks.length > 0) appendTracks(tracks);
 }
 
 function createPlayerStore() {
@@ -123,6 +114,10 @@ function createPlayerStore() {
       const incomingTracks = normalizeTracks(tracks).filter((track) => !existingIds.has(track.id));
       const nextTracks = [...state.tracks, ...incomingTracks];
       const nextIds = nextTracks.map((track) => track.id);
+
+      if (incomingTracks.length > 0) {
+        void saveProviderTracks(nextTracks);
+      }
 
       return {
         ...state,
