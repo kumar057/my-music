@@ -1,5 +1,6 @@
 import { dedupeTracks } from './normalizer';
 import { appleMusicProvider } from './providers/appleMusic';
+import { indianMusicProvider } from './providers/indianMusic';
 import { spotifyProvider } from './providers/spotify';
 import { youtubeProvider } from './providers/youtube';
 import {
@@ -13,7 +14,7 @@ import {
   type UnifiedSearchResult
 } from './types';
 
-const providers: MusicProvider[] = [spotifyProvider, appleMusicProvider, youtubeProvider];
+const providers: MusicProvider[] = [spotifyProvider, appleMusicProvider, youtubeProvider, indianMusicProvider];
 const cache = new Map<string, UnifiedSearchResult>();
 const CACHE_TTL_MS = 2 * 60 * 1000;
 
